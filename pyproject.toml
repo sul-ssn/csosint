@@ -35,3 +35,10 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Гарантируем импорт workspace-пакетов из src-layout независимо от того, как
+# окружение обработало editable-инсталляции (переносимо между CI и локалью).
+pythonpath = [
+    "libs/common/src",
+    "services/gateway/src",
+    "services/cve_service/src",
+]
