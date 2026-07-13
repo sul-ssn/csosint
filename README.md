@@ -35,7 +35,7 @@
 
 ## Статус
 
-**Этап 0** (каркас) · **Этап 1** (матчинг) · **Этап 2** (сбор) · **Этап 3** (граф) — готово ✔
+**Этап 0** каркас · **1** матчинг · **2** сбор · **3** граф · **4** frontend — готово ✔
 
 ### Этап 1 — CVE-база и матчинг
 
@@ -80,20 +80,33 @@
 - **Эндпоинты gateway**: `GET /api/v1/graph/domain/{fqdn}`,
   `/api/v1/graph/ip/{address}`, `/api/v1/graph/scan/{job_id}`.
 
-Дальше — Этап 4 (frontend: Next.js + Cytoscape, WS-прогресс) по роадмапу ТЗ §8.
+### Этап 4 — Frontend + realtime
+
+- **Backend-энейблеры**: `GET /api/v1/report/{job_id}` (активы + «потенциальные»
+  CVE + дисклеймер), `GET /api/v1/sources` (статус core/опциональных источников),
+  **WS `/ws/scan/{job_id}`** — прогресс в реальном времени через `Celery → Redis
+  pub/sub → gateway WS → браузер` (общий контракт события в `csosint_common.events`).
+- **Next.js 14** (`frontend/`, App Router + TS): форма цели, live-прогресс сбора
+  по WS, страница отчёта (сводка/уязвимости/активы), визуализация графа на
+  **Cytoscape.js**, страница статуса источников. Тёмная тема, self-host (база API —
+  `NEXT_PUBLIC_API_URL`).
+
+Дальше — Этап 5 (SSRF-guard, rate-limit, полировка/доки) по роадмапу ТЗ §8.
 
 ## Стек
 
 Python 3.12 · FastAPI · Pydantic v2 · Celery + Redis · PostgreSQL 16 ·
-SQLAlchemy 2 / Alembic · uv (workspace-монорепо) · Docker Compose.
+SQLAlchemy 2 / Alembic · uv (workspace-монорепо) · Next.js 14 + Cytoscape.js ·
+Docker Compose.
 
 ## Структура
 
 ```
-libs/common/              общие модули (config, db, models §5, schemas, health)
-services/gateway/         API Gateway (BFF) — единая точка входа, оркестрация scan
+libs/common/              общие модули (config, db, models §5, schemas, events, health)
+services/gateway/         API Gateway (BFF) — вход, оркестрация scan, граф, отчёт, WS
 services/cve_service/     синк NVD + матчинг product+version→CVE
 services/collector_service/ пассивный сбор: InternetDB, CT, DNS/RDAP + опц. обогащение
+frontend/                 Next.js 14 UI — форма, прогресс (WS), отчёт, граф
 migrations/               Alembic
 docs → specification, design-cpe-matching.md, design-nvd-sync.md
 ```
@@ -105,10 +118,11 @@ docs → specification, design-cpe-matching.md, design-nvd-sync.md
 
 ```bash
 cp .env.example .env      # при желании впишите свои API-ключи
-docker compose up --build # PG, Redis, миграции, gateway (:8000), cve-service (:8001), collector (:8002)
+docker compose up --build # PG, Redis, миграции, gateway (:8000), cve (:8001),
+                          # collector (:8002), UI (:3000)
 ```
 
-Health: `curl localhost:8000/health` · `curl localhost:8000/health/ready`
+UI: `http://localhost:3000` · Health: `curl localhost:8000/health`
 Docs (OpenAPI): `http://localhost:8000/docs`
 
 ## Локальная разработка (без Docker)
@@ -122,6 +136,11 @@ uv run uvicorn gateway.main:app --reload     # gateway на :8000
 Миграции (нужен запущенный PostgreSQL):
 ```bash
 uv run alembic upgrade head
+```
+
+Frontend (нужен Node 20+):
+```bash
+cd frontend && npm install && npm run dev   # UI на :3000, ждёт gateway на :8000
 ```
 
 ## Проектные документы

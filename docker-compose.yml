@@ -127,5 +127,15 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Next.js UI: форма цели, прогресс сбора (WS), отчёт и граф связей.
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway
+
 volumes:
   pgdata:

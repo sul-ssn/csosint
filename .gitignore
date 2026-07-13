@@ -22,3 +22,11 @@ __pycache__/
 # data / dumps
 *.sqlite3
 /data/
+
+# frontend (Next.js / Node)
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/.turbo/
+*.tsbuildinfo

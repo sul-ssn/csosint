@@ -3,6 +3,7 @@
 Собирает по цели (домен/IP/организация) нормализованный `CollectResult`.
 Каждый источник обёрнут в guard: падение или отсутствие ключа помечается в
 `degraded` и НЕ роняет всю задачу — частичный результат лучше провала (§4).
+Прогресс по источникам эмитится через опциональный `progress`-callback (§7).
 """
 
 from __future__ import annotations
@@ -26,58 +27,87 @@ from .types import CollectResult
 SUBDOMAIN_RESOLVE_CAP = 50
 IP_RECON_CAP = 100
 
-
-async def _guard(result: CollectResult, name: str, coro: Awaitable) -> None:
-    try:
-        await coro
-    except SourceError as exc:
-        result.mark_degraded(name, f"failed: {exc}")
-    except Exception as exc:  # неожиданное — фиксируем, но не роняем задачу
-        result.mark_degraded(name, f"error: {type(exc).__name__}: {exc}")
+ProgressFn = Callable[[dict], Awaitable[None]]
 
 
-async def _optional(
-    result: CollectResult, module, settings, make_coro: Callable[[], Awaitable]
-) -> None:
-    if not module.is_enabled(settings):
-        result.mark_degraded(module.SOURCE, "skipped: no api key")
-        return
-    await _guard(result, module.SOURCE, make_coro())
+class _Collector:
+    def __init__(self, settings, client, resolve, progress: ProgressFn | None) -> None:
+        self.settings = settings
+        self.client = client
+        self.resolve = resolve
+        self.progress = progress
+        self.result = CollectResult()
 
+    async def _emit(self, **event) -> None:
+        if self.progress:
+            await self.progress(event)
 
-async def _collect_ip_sources(result: CollectResult, ip: str, settings, client) -> None:
-    await _guard(result, internetdb.SOURCE, internetdb.collect(result, ip, client))
-    await _guard(result, rdap.SOURCE, rdap.collect_ip(result, ip, client))
-    await _optional(result, shodan, settings, lambda: shodan.collect(result, ip, client, settings))
-    await _optional(result, censys, settings, lambda: censys.collect(result, ip, client, settings))
+    async def _guard(self, name: str, coro: Awaitable) -> None:
+        try:
+            await coro
+        except SourceError as exc:
+            self.result.mark_degraded(name, f"failed: {exc}")
+            await self._emit(event="source", source=name, status="failed", message=str(exc))
+        except Exception as exc:  # неожиданное — фиксируем, но не роняем задачу
+            self.result.mark_degraded(name, f"error: {type(exc).__name__}: {exc}")
+            await self._emit(event="source", source=name, status="failed", message=str(exc))
+        else:
+            await self._emit(event="source", source=name, status="ok")
 
+    async def _optional(self, module, make_coro: Callable[[], Awaitable]) -> None:
+        if not module.is_enabled(self.settings):
+            self.result.mark_degraded(module.SOURCE, "skipped: no api key")
+            await self._emit(event="source", source=module.SOURCE, status="skipped")
+            return
+        await self._guard(module.SOURCE, make_coro())
 
-async def _collect_domain(result, domain, settings, client, resolve) -> None:
-    domain = domain.lower().rstrip(".")
-    result.add_subdomain(domain, "seed")
+    async def _collect_ip_sources(self, ip: str) -> None:
+        await self._guard(internetdb.SOURCE, internetdb.collect(self.result, ip, self.client))
+        await self._guard(rdap.SOURCE, rdap.collect_ip(self.result, ip, self.client))
+        await self._optional(
+            shodan, lambda: shodan.collect(self.result, ip, self.client, self.settings)
+        )
+        await self._optional(
+            censys, lambda: censys.collect(self.result, ip, self.client, self.settings)
+        )
 
-    # Поддомены: CT (core) + опциональный пассивный DNS.
-    await _guard(result, crtsh.SOURCE, crtsh.collect(result, domain, client))
-    await _optional(
-        result,
-        securitytrails,
-        settings,
-        lambda: securitytrails.collect(result, domain, client, settings),
-    )
-    await _optional(
-        result,
-        virustotal,
-        settings,
-        lambda: virustotal.collect(result, domain, client, settings),
-    )
+    async def _collect_domain(self, domain: str) -> None:
+        domain = domain.lower().rstrip(".")
+        self.result.add_subdomain(domain, "seed")
 
-    # Резолвим найденные имена (с ограничением фанаута) → рёбра домен→IP.
-    for name in sorted(result.subdomains)[:SUBDOMAIN_RESOLVE_CAP]:
-        await _guard(result, dns_records.SOURCE, dns_records.collect(result, name, resolve=resolve))
+        # Поддомены: CT (core) + опциональный пассивный DNS.
+        await self._guard(crtsh.SOURCE, crtsh.collect(self.result, domain, self.client))
+        await self._optional(
+            securitytrails,
+            lambda: securitytrails.collect(self.result, domain, self.client, self.settings),
+        )
+        await self._optional(
+            virustotal,
+            lambda: virustotal.collect(self.result, domain, self.client, self.settings),
+        )
 
-    # Recon по обнаруженным IP.
-    for ip in sorted(result.ips)[:IP_RECON_CAP]:
-        await _collect_ip_sources(result, ip, settings, client)
+        # Резолвим найденные имена (с ограничением фанаута) → рёбра домен→IP.
+        try:
+            for name in sorted(self.result.subdomains)[:SUBDOMAIN_RESOLVE_CAP]:
+                await dns_records.collect(self.result, name, resolve=self.resolve)
+            await self._emit(event="source", source=dns_records.SOURCE, status="ok")
+        except Exception as exc:
+            self.result.mark_degraded(dns_records.SOURCE, f"error: {exc}")
+            await self._emit(event="source", source=dns_records.SOURCE, status="failed")
+
+        # Recon по обнаруженным IP.
+        for ip in sorted(self.result.ips)[:IP_RECON_CAP]:
+            await self._collect_ip_sources(ip)
+
+    async def run(self, target: str, target_type: str) -> CollectResult:
+        if target_type == "domain":
+            await self._collect_domain(target)
+        elif target_type == "ip":
+            await self._collect_ip_sources(target)
+        else:  # org: пассивный маппинг «организация → домены» вне скоупа v1
+            self.result.mark_degraded("org", "skipped: org→domain discovery out of v1 scope")
+            await self._emit(event="source", source="org", status="skipped")
+        return self.result
 
 
 async def collect(
@@ -87,19 +117,12 @@ async def collect(
     *,
     client=None,
     resolve=None,
+    progress: ProgressFn | None = None,
 ) -> CollectResult:
-    result = CollectResult()
     owns_client = client is None
     client = client or build_client()
     try:
-        if target_type == "domain":
-            await _collect_domain(result, target, settings, client, resolve)
-        elif target_type == "ip":
-            await _collect_ip_sources(result, target, settings, client)
-        else:  # org
-            # Пассивный маппинг «организация → домены» вне скоупа v1 (нет core-источника).
-            result.mark_degraded("org", "skipped: org→domain discovery out of v1 scope")
+        return await _Collector(settings, client, resolve, progress).run(target, target_type)
     finally:
         if owns_client:
             await client.aclose()
-    return result

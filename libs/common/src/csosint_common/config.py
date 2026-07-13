@@ -21,6 +21,8 @@ class Settings(BaseSettings):
         description="Async DSN PostgreSQL (asyncpg-драйвер).",
     )
     redis_url: str = Field(default="redis://localhost:6379/0")
+    # CORS для фронта (self-host): `*` в dev или CSV-список origin'ов.
+    cors_origins: str = Field(default="*")
 
     # --- Core-источники (ТЗ §4) ---
     nvd_api_key: str | None = None
