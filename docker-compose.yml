@@ -92,5 +92,40 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Пассивный сбор активов (InternetDB, CT, DNS/RDAP + опц. обогащение).
+  collector-service:
+    build:
+      context: .
+      dockerfile: services/collector_service/Dockerfile
+    environment: &collector_env
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-csosint}:${POSTGRES_PASSWORD:-csosint}@postgres:5432/${POSTGRES_DB:-csosint}
+      REDIS_URL: redis://redis:6379/0
+      SHODAN_API_KEY: ${SHODAN_API_KEY:-}
+      CENSYS_API_ID: ${CENSYS_API_ID:-}
+      CENSYS_API_SECRET: ${CENSYS_API_SECRET:-}
+      SECURITYTRAILS_API_KEY: ${SECURITYTRAILS_API_KEY:-}
+      VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
+    ports:
+      - "8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  collector-worker:
+    build:
+      context: .
+      dockerfile: services/collector_service/Dockerfile
+    command: ["uv", "run", "--no-sync", "celery", "-A", "collector_service.celery_app.celery_app", "worker", "--loglevel=info"]
+    environment: *collector_env
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   pgdata:
