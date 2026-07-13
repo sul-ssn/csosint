@@ -9,10 +9,21 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from csosint_common.config import get_settings
 from csosint_common.db import get_session
 from csosint_common.health import make_health_router
 from csosint_common.models import ScanJob
@@ -20,6 +31,8 @@ from csosint_common.schemas import ScanJobCreated, ScanRequest
 
 from .graph import build_graph
 from .queue import enqueue_scan
+from .report import build_report
+from .ws import scan_stream
 
 app = FastAPI(
     title="CSOSINT API Gateway",
@@ -28,6 +41,15 @@ app = FastAPI(
 )
 
 app.include_router(make_health_router("gateway", check_db=True, check_redis=True))
+
+# Self-host: фронт ходит с другого origin (Next.js). CORS_ORIGINS — CSV или * (dev).
+_origins = get_settings().cors_origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if _origins == "*" else [o.strip() for o in _origins.split(",")],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 api = APIRouter(prefix="/api/v1")
@@ -87,7 +109,45 @@ async def graph_by_scan(job_id: int, session: SessionDep) -> dict:
     return {"nodes": [], "edges": []}
 
 
+@api.get("/report/{job_id}")
+async def get_report(job_id: int, session: SessionDep) -> dict:
+    """Итоговый отчёт по скану: активы + «потенциальные» CVE (+ дисклеймер)."""
+    job = await session.get(ScanJob, job_id)
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"scan job {job_id} не найден")
+    return await build_report(session, job)
+
+
+@api.get("/sources")
+async def list_sources() -> dict:
+    """Статус источников: core (всегда) + опциональные (включены при наличии ключа)."""
+    s = get_settings()
+    return {
+        "core": ["internetdb", "crtsh", "dns", "rdap"],
+        "optional": [
+            {"name": "shodan", "enabled": bool(s.shodan_api_key)},
+            {"name": "censys", "enabled": bool(s.censys_api_id and s.censys_api_secret)},
+            {"name": "securitytrails", "enabled": bool(s.securitytrails_api_key)},
+            {"name": "virustotal", "enabled": bool(s.virustotal_api_key)},
+        ],
+    }
+
+
 app.include_router(api)
+
+
+@app.websocket("/ws/scan/{job_id}")
+async def ws_scan(websocket: WebSocket, job_id: int) -> None:
+    """Прогресс сбора в реальном времени: снапшот статуса + живые события."""
+    await websocket.accept()
+    redis = Redis.from_url(get_settings().redis_url)
+    try:
+        async for data in scan_stream(job_id, redis):
+            await websocket.send_text(data)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await redis.aclose()
 
 
 @app.get("/")

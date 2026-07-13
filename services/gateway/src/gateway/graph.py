@@ -174,15 +174,21 @@ async def _fetch(session: AsyncSession, domain_ids: list[int], ip_ids: list[int]
     return g
 
 
+async def component_for(
+    session: AsyncSession, *, domain: str | None = None, ip: str | None = None
+) -> tuple[list[int], list[int]]:
+    """Связная компонента (domain_ids, ip_ids) от корня — общая для графа и отчёта."""
+    if domain is not None:
+        return await _component(session, _SEED_DOMAIN, domain.lower().rstrip("."))
+    if ip is not None:
+        return await _component(session, _SEED_IP, ip)
+    return [], []
+
+
 async def build_graph(
     session: AsyncSession, *, domain: str | None = None, ip: str | None = None
 ) -> dict:
     """Граф связной компоненты от корня (домен или IP) → Cytoscape {nodes, edges}."""
-    if domain is not None:
-        domain_ids, ip_ids = await _component(session, _SEED_DOMAIN, domain.lower().rstrip("."))
-    elif ip is not None:
-        domain_ids, ip_ids = await _component(session, _SEED_IP, ip)
-    else:  # pragma: no cover
-        raise ValueError("нужен domain или ip")
+    domain_ids, ip_ids = await component_for(session, domain=domain, ip=ip)
     g = await _fetch(session, domain_ids, ip_ids)
     return to_cytoscape(g)
