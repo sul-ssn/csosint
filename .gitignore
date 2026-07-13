@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# uv
+# keep uv.lock committed
+
+# env / secrets
+.env
+*.local
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# data / dumps
+*.sqlite3
+/data/

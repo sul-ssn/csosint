@@ -1,0 +1,37 @@
+[project]
+name = "csosint"
+version = "0.1.0"
+description = "CVE Intelligence Platform — пассивная OSINT-аналитика (self-host)"
+requires-python = ">=3.12"
+dependencies = []
+
+# Корень — виртуальный workspace-root, сам не собирается в пакет.
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["libs/*", "services/*"]
+
+# Общая dev-среда для всего монорепо (единый .venv).
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "anyio>=4",
+    "httpx>=0.27",
+    "respx>=0.21",
+    "ruff>=0.6",
+    "alembic>=1.13",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["libs/common/src", "services/gateway/src", "services/cve_service/src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

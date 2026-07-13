@@ -1,0 +1,96 @@
+# Локальный стек CSOSINT (ТЗ Этап 0). Запуск: cp .env.example .env && docker compose up
+name: csosint
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-csosint}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-csosint}
+      POSTGRES_DB: ${POSTGRES_DB:-csosint}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-csosint}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Одноразовый прогон миграций перед стартом сервисов.
+  migrate:
+    build:
+      context: .
+      dockerfile: services/cve_service/Dockerfile
+    command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-csosint}:${POSTGRES_PASSWORD:-csosint}@postgres:5432/${POSTGRES_DB:-csosint}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-csosint}:${POSTGRES_PASSWORD:-csosint}@postgres:5432/${POSTGRES_DB:-csosint}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  cve-service:
+    build:
+      context: .
+      dockerfile: services/cve_service/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-csosint}:${POSTGRES_PASSWORD:-csosint}@postgres:5432/${POSTGRES_DB:-csosint}
+      REDIS_URL: redis://redis:6379/0
+      NVD_API_KEY: ${NVD_API_KEY:-}
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Celery-воркер (тот же образ, другая команда).
+  cve-worker:
+    build:
+      context: .
+      dockerfile: services/cve_service/Dockerfile
+    command: ["uv", "run", "--no-sync", "celery", "-A", "cve_service.celery_app.celery_app", "worker", "--loglevel=info"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-csosint}:${POSTGRES_PASSWORD:-csosint}@postgres:5432/${POSTGRES_DB:-csosint}
+      REDIS_URL: redis://redis:6379/0
+      NVD_API_KEY: ${NVD_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
