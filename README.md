@@ -35,7 +35,9 @@
 
 ## Статус
 
-Этап 1 (CVE-база и матчинг) — готово ✔
+**Этап 0** (каркас) · **Этап 1** (CVE-база и матчинг) · **Этап 2** (сбор данных) — готово ✔
+
+### Этап 1 — CVE-база и матчинг
 
 - **Синк NVD** (`cve_service.nvd`): устойчивый клиент API 2.0 (rate-limit, ретраи,
   уважение `Retry-After`), парсинг CVE + распаковка `configurations` в
@@ -47,10 +49,26 @@
   `match_confidence` (high/medium/low), дедуп по CVE.
 - **API cve-service**: `/sync/run`, `/sync/status`, `/cve/{id}`,
   `/match/{service_id}` (+ GET). Celery-таски: `nvd_sync`, `match_service`.
-- Покрыто юнит-тестами (парсинг, границы версий, золотые кейсы вроде Heartbleed,
-  идемпотентность/резюмируемость синка) — сеть/БД в тестах не трогаются.
 
-Дальше — Этап 2 (сбор данных: recon/dns/cert) по роадмапу ТЗ §8.
+### Этап 2 — сбор данных
+
+- **collector-service**: пассивный сбор активов по цели (домен/IP). Core-источники
+  без ключей — **InternetDB** (порты/CPE), **Certificate Transparency** (crt.sh
+  с фолбэком на certspotter), **DNS** (dnspython) и **RDAP** (владелец/страна по IP).
+  Опциональное обогащение по своему ключу — **Shodan, Censys, SecurityTrails,
+  VirusTotal** (нет ключа → источник тихо `skipped`).
+- **Отказоустойчивость**: единый http-хелпер с timeout + экспоненциальным retry
+  (`tenacity`); падение/пропуск источника пишется в `scan_jobs.degraded_sources`
+  и не роняет задачу (graceful degradation, ТЗ §4).
+- **Провенанс**: у сервисов проставлен `source`; при конфликте по IP наблюдения
+  не перетираются (COALESCE). Повторный скан идемпотентен.
+- **Оркестрация**: `POST /api/v1/scan` создаёт `scan_job` и ставит сбор в очередь;
+  `GET /api/v1/scan/{job_id}` — статус (+ `degraded_sources`). После сбора
+  collector автоматически чейнит матчинг новых сервисов в cve-service.
+- Покрыто юнит-тестами (respx-парсеры источников, degraded/skip-логика пайплайна,
+  DNS на фейковом резолвере) — без сети.
+
+Дальше — Этап 3 (граф связей: рекурсивные CTE) по роадмапу ТЗ §8.
 
 ## Стек
 
@@ -60,10 +78,11 @@ SQLAlchemy 2 / Alembic · uv (workspace-монорепо) · Docker Compose.
 ## Структура
 
 ```
-libs/common/          общие модули (config, db, models §5, schemas, health)
-services/gateway/     API Gateway (BFF) — единая точка входа
-services/cve_service/ синк NVD + матчинг product+version→CVE
-migrations/           Alembic
+libs/common/              общие модули (config, db, models §5, schemas, health)
+services/gateway/         API Gateway (BFF) — единая точка входа, оркестрация scan
+services/cve_service/     синк NVD + матчинг product+version→CVE
+services/collector_service/ пассивный сбор: InternetDB, CT, DNS/RDAP + опц. обогащение
+migrations/               Alembic
 docs → specification, design-cpe-matching.md, design-nvd-sync.md
 ```
 
@@ -74,7 +93,7 @@ docs → specification, design-cpe-matching.md, design-nvd-sync.md
 
 ```bash
 cp .env.example .env      # при желании впишите свои API-ключи
-docker compose up --build # PG, Redis, миграции, gateway (:8000), cve-service (:8001)
+docker compose up --build # PG, Redis, миграции, gateway (:8000), cve-service (:8001), collector (:8002)
 ```
 
 Health: `curl localhost:8000/health` · `curl localhost:8000/health/ready`

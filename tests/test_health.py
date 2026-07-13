@@ -22,11 +22,11 @@ def test_cve_service_liveness() -> None:
     assert resp.json()["service"] == "cve-service"
 
 
-def test_scan_endpoint_is_stub() -> None:
-    # Оркестрация сбора — Этап 2; пока честный 501.
+def test_scan_endpoint_validates_input() -> None:
+    # /scan реализован (Этап 2); проверяем строгую валидацию до похода в БД.
     with TestClient(gateway_app) as client:
-        resp = client.post("/api/v1/scan", json={"target": "example.com", "type": "domain"})
-    assert resp.status_code == 501
+        resp = client.post("/api/v1/scan", json={"target": "example.com", "type": "bogus"})
+    assert resp.status_code == 422
 
 
 def test_schema_has_core_tables() -> None:

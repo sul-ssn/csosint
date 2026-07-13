@@ -41,4 +41,5 @@ pythonpath = [
     "libs/common/src",
     "services/gateway/src",
     "services/cve_service/src",
+    "services/collector_service/src",
 ]
