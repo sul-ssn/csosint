@@ -172,7 +172,7 @@ def test_optional_is_enabled_flags() -> None:
 async def test_dns_collect_with_fake_resolver() -> None:
     answers = {
         "A": ["1.2.3.4"],
-        "AAAA": ["2001:db8::1"],
+        "AAAA": ["2606:4700:4700::1111"],
         "MX": ["10 mail.example.com."],
         "NS": ["ns1.example.com."],
         "TXT": ['"v=spf1 -all"'],
@@ -184,9 +184,9 @@ async def test_dns_collect_with_fake_resolver() -> None:
     result = CollectResult()
     rec = await dns_records.collect(result, "www.example.com", resolve=fake_resolve)
     assert rec.a == ["1.2.3.4"]
-    assert rec.aaaa == ["2001:db8::1"]
+    assert rec.aaaa == ["2606:4700:4700::1111"]
     assert ("www.example.com", "1.2.3.4", "dns") in result.resolutions
-    assert ("www.example.com", "2001:db8::1", "dns") in result.resolutions
+    assert ("www.example.com", "2606:4700:4700::1111", "dns") in result.resolutions
 
 
 async def test_dns_swallows_per_record_errors() -> None:
