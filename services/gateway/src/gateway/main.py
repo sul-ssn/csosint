@@ -31,6 +31,7 @@ from csosint_common.schemas import ScanJobCreated, ScanRequest
 
 from .graph import build_graph
 from .queue import enqueue_scan
+from .ratelimit import rate_limit
 from .report import build_report
 from .ws import scan_stream
 
@@ -52,7 +53,8 @@ app.add_middleware(
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-api = APIRouter(prefix="/api/v1")
+# Rate-limit на все эндпоинты API (ТЗ §7).
+api = APIRouter(prefix="/api/v1", dependencies=[Depends(rate_limit)])
 
 
 class ScanJobStatus(BaseModel):

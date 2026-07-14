@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0")
     # CORS для фронта (self-host): `*` в dev или CSV-список origin'ов.
     cors_origins: str = Field(default="*")
+    # Rate-limit на эндпоинты gateway (запросов на клиента в минуту, ТЗ §7).
+    rate_limit_per_minute: int = Field(default=60)
 
     # --- Core-источники (ТЗ §4) ---
     nvd_api_key: str | None = None

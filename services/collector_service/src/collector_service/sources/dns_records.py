@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
+from csosint_common.netguard import is_public_ip
+
 from ..types import CollectResult, DnsRecords
 
 SOURCE = "dns"
@@ -45,6 +47,9 @@ async def collect(
         getattr(rec, attr).extend(cleaned)
         if rdtype in ("A", "AAAA"):
             for ip in cleaned:
-                result.add_resolution(fqdn, ip, SOURCE)
+                # SSRF-guard (ТЗ §11.1): приватные/служебные IP в recon не берём —
+                # проверка на ФАКТИЧЕСКОМ адресе после резолва (DNS rebinding).
+                if is_public_ip(ip):
+                    result.add_resolution(fqdn, ip, SOURCE)
     result.add_dns(rec)
     return rec
