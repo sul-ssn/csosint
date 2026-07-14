@@ -22,9 +22,21 @@ def test_full_graph_shape() -> None:
     )
     nodes, edges = _index(to_cytoscape(g))
 
-    assert set(nodes) == {"domain:1", "domain:2", "ip:10", "service:100", "cve:CVE-2014-0160"}
+    assert set(nodes) == {
+        "domain:1",
+        "domain:2",
+        "ip:10",
+        "service:100",
+        "cve:CVE-2014-0160",
+        "country:US",
+        "org:TESTNET",
+    }
     assert nodes["ip:10"]["org_name"] == "TESTNET"
     assert nodes["service:100"]["label"] == "OpenSSL 1.0.1:443"
+    assert nodes["cve:CVE-2014-0160"]["label"] == "CVE-2014-0160 (7.5)"
+    # Гео/организация как отдельные узлы (как у CVEG).
+    assert edges["ip:10->country:US"]["type"] == "geo"
+    assert edges["ip:10->org:TESTNET"]["type"] == "hosted"
     # Shared-host: оба домена связаны с одним IP.
     assert "domain:1->ip:10" in edges and "domain:2->ip:10" in edges
     assert edges["ip:10->service:100"]["type"] == "runs"

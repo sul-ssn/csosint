@@ -30,7 +30,10 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
-    # Суточный синк NVD. Срабатывает только при запущенном `celery beat`.
+    # cve-worker слушает свою очередь "cve" (сюда collector шлёт match_service, а
+    # gateway — run_scan в дефолтную "celery" для collector-worker). Иначе воркеры
+    # делят одну очередь и cve-worker крадёт run_scan → скан висит в pending.
+    task_default_queue="cve",
     beat_schedule={
         "nvd-sync-daily": {
             "task": "cve_service.nvd_incremental_sync",

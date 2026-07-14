@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from csosint_common.models import CveRecord, Domain, IpAddress, Service, ServiceCve
 
 from .graph import component_for
+from .risk import build_exec_summary, rank_findings, summarize, top_risks
 
 DISCLAIMER = (
     "«potentially vulnerable»: наличие версии с известной CVE не означает, что хост "
@@ -110,11 +111,9 @@ async def build_report(session: AsyncSession, job) -> dict:
                     "description": desc,
                 }
             )
-    # По убыванию достоверности, затем по CVSS.
-    _rank = {"high": 3, "medium": 2, "low": 1}
-    vulns.sort(
-        key=lambda v: (_rank.get(v["match_confidence"], 0), v["cvss_score"] or 0), reverse=True
-    )
+    # Приоритизация по риску (severity × достоверность), не по одной достоверности.
+    rank_findings(vulns)
+    summary = summarize(len(domains), len(ip_rows), len(services), vulns)
 
     return {
         "job": {
@@ -126,15 +125,9 @@ async def build_report(session: AsyncSession, job) -> dict:
             "finished_at": job.finished_at,
             "degraded_sources": job.degraded_sources,
         },
-        "summary": {
-            "domains": len(domains),
-            "ips": len(ip_rows),
-            "services": len(services),
-            "vulnerabilities": len(vulns),
-            "high": sum(1 for v in vulns if v["match_confidence"] == "high"),
-            "medium": sum(1 for v in vulns if v["match_confidence"] == "medium"),
-            "low": sum(1 for v in vulns if v["match_confidence"] == "low"),
-        },
+        "summary": summary,
+        "exec_summary": build_exec_summary(job.target, len(ip_rows), len(services), vulns, summary),
+        "top_risks": top_risks(vulns),
         "assets": {
             "domains": [{"id": did, "fqdn": fqdn} for did, fqdn in domains],
             "ips": [

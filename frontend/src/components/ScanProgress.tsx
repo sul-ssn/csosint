@@ -17,23 +17,33 @@ export default function ScanProgress({
   const done = useRef(false);
 
   useEffect(() => {
+    // cancelled защищает от abort'а сокета при StrictMode-перемонтаже в dev:
+    // закрытие ещё подключающегося WS иначе стреляет onerror → ложный «failed».
+    let cancelled = false;
     const ws = new WebSocket(`${wsBase()}/ws/scan/${jobId}`);
     ws.onmessage = (m) => {
+      if (cancelled) return;
       const ev = JSON.parse(m.data) as ProgressEvent;
       setEvents((prev) => [...prev, ev]);
-      if ((ev.event === "done" || ev.event === "failed") && !done.current) {
-        done.current = true;
-        onDone(ev.event === "done");
+      if (ev.event === "done" || ev.event === "failed") {
+        if (!done.current) {
+          done.current = true;
+          onDone(ev.event === "done");
+        }
         ws.close();
       }
     };
     ws.onerror = () => {
-      if (!done.current) {
-        done.current = true;
-        onDone(false);
-      }
+      // Транспортная ошибка WS — НЕ признак падения скана: реальный «failed»
+      // приходит событием выше. Просто грузим отчёт по факту из БД.
+      if (cancelled || done.current) return;
+      done.current = true;
+      onDone(true);
     };
-    return () => ws.close();
+    return () => {
+      cancelled = true;
+      ws.close();
+    };
   }, [jobId, onDone]);
 
   function render(ev: ProgressEvent): string {

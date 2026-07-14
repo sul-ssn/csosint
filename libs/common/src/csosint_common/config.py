@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     securitytrails_api_key: str | None = None
     virustotal_api_key: str | None = None
 
+    # --- AI-анализ сценариев атак (Этап 6, ТЗ §2 CVEG). Опционально: нет ключа → 501 ---
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-opus-4-8"
+
     # --- Поведение синка NVD (design-nvd-sync) ---
     nvd_sync_min_delay_seconds: float = 6.0
     nvd_sync_page_size: int = 2000
