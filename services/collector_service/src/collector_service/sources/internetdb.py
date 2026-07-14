@@ -1,8 +1,9 @@
-"""InternetDB — primary-источник портов/CPE по IP (ТЗ §4.1).
+"""InternetDB — primary-источник портов/CPE/CVE по IP (ТЗ §4.1).
 
 Бесплатно, без ключа: `https://internetdb.shodan.io/{ip}`. Отдаёт открытые порты,
-hostnames, host-level CPE, теги и `vulns`. `vulns` пользователю НЕ показываем —
-это эталон для кросс-чека матчинга (ТЗ §4.1, §6); наружу идёт наша корреляция.
+hostnames, host-level CPE, теги и `vulns` (готовые CVE от Shodan). `vulns`
+показываем как host-level находки (source=internetdb, confidence=high); свой
+CPE-матчинг по локальной базе NVD остаётся дополнением.
 """
 
 from __future__ import annotations
@@ -33,11 +34,24 @@ def parse(ip: str, data: dict) -> list[HostService]:
     return services
 
 
+def parse_vulns(data: dict) -> list[str]:
+    """CVE-идентификаторы из поля `vulns` (мусор отфильтрован)."""
+    return sorted({c for v in data.get("vulns", []) if (c := str(v)).startswith("CVE-")})
+
+
 async def collect(result: CollectResult, ip: str, client) -> None:
     """Фетч+парс InternetDB по IP; наполняет result. Бросает SourceError при сбое."""
     data = await get_json(client, f"{_BASE}/{ip}")
-    for svc in parse(ip, data):
+    services = parse(ip, data)
+    vulns = parse_vulns(data)
+    # host-level якорь (port=0) — к нему привязываем host-level CVE от Shodan.
+    if vulns and not any(s.port == HOST_LEVEL_PORT for s in services):
+        services.append(HostService(ip=ip, port=HOST_LEVEL_PORT, source=SOURCE))
+    for svc in services:
         result.add_service(svc)
+    host_cpe = next((s.cpe_uri for s in services if s.port == HOST_LEVEL_PORT and s.cpe_uri), None)
+    for cve_id in vulns:
+        result.add_vuln(ip, cve_id, SOURCE, host_cpe)
     # hostnames — обратные имена для IP; фиксируем как поддомены + резолвы.
     for hostname in data.get("hostnames", []):
         result.add_subdomain(hostname, SOURCE)

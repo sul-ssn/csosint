@@ -67,6 +67,14 @@ def to_cytoscape(g: GraphData) -> dict:
         nodes[f"domain:{did}"] = _node(f"domain:{did}", fqdn, "domain")
     for iid, address, org, country in g.ips:
         nodes[f"ip:{iid}"] = _node(f"ip:{iid}", address, "ip", org_name=org, country=country)
+        if country:
+            cid = f"country:{country}"
+            nodes.setdefault(cid, _node(cid, country, "country"))
+            edges[f"ip:{iid}->{cid}"] = _edge(f"ip:{iid}", cid, "geo")
+        if org:
+            oid = f"org:{org}"
+            nodes.setdefault(oid, _node(oid, org, "org"))
+            edges[f"ip:{iid}->{oid}"] = _edge(f"ip:{iid}", oid, "hosted")
     for sid, ip_id, port, product, version, source in g.services:
         label = product or "service"
         if version:
@@ -76,8 +84,9 @@ def to_cytoscape(g: GraphData) -> dict:
         )
         edges[f"ip:{ip_id}->service:{sid}"] = _edge(f"ip:{ip_id}", f"service:{sid}", "runs")
     for cve_id, severity, score in g.cves:
+        label = f"{cve_id} ({score})" if score is not None else cve_id
         nodes[f"cve:{cve_id}"] = _node(
-            f"cve:{cve_id}", cve_id, "cve", severity=severity, cvss_score=score
+            f"cve:{cve_id}", label, "cve", severity=severity, cvss_score=score
         )
 
     for domain_id, ip_id in g.edges_domain_ip:
