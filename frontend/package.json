@@ -1,0 +1,25 @@
+{
+  "name": "ospc-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OSPC UI — форма цели, прогресс сбора, отчёт и граф связей (ТЗ §7, Этап 4)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "cytoscape": "^3.30.2",
+    "next": "^14.2.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/cytoscape": "^3.21.8",
+    "@types/node": "^20.16.11",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.6.3"
+  }
+}
