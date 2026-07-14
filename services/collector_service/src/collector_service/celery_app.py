@@ -67,8 +67,10 @@ def run_scan(job_id: int) -> dict:
                 await prog.aclose()
                 return {"status": "not_found", "job_id": job_id}
             target, target_type = job.target, job.type
-            async with session.begin():
-                job.status = "running"
+            # session.get выше уже автостартовал транзакцию — просто коммитим,
+            # без session.begin() (иначе «transaction is already begun»).
+            job.status = "running"
+            await session.commit()
 
         try:
             await prog.emit({"event": "started", "status": "running"})
@@ -82,8 +84,9 @@ def run_scan(job_id: int) -> dict:
             service_ids = counts.pop("service_ids", [])
             await prog.emit({"event": "persisted", "counts": counts})
             # Зачейнить матчинг product+version→CVE по новым сервисам (ТЗ §6).
+            # Отдельная очередь `cve` — чтобы матчинг разбирал cve-воркер, а не collector.
             for sid in service_ids:
-                celery_app.send_task("cve_service.match_service", args=[sid])
+                celery_app.send_task("cve_service.match_service", args=[sid], queue="cve")
             await prog.emit({"event": "matching", "counts": {"services": len(service_ids)}})
             await prog.emit({"event": "done", "status": "done", "counts": counts})
             return {"status": "done", "job_id": job_id, **counts}
