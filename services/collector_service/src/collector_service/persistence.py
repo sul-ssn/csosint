@@ -12,9 +12,12 @@ from sqlalchemy import delete, func, insert, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from csosint_common.models import Domain, DomainIp, IpAddress, Service
+from csosint_common.models import CveRecord, Domain, DomainIp, IpAddress, Service, ServiceCve
 
 from .types import CollectResult
+
+# host-level порт-сентинел (см. sources/internetdb) — якорь для host-level CVE.
+_HOST_PORT = 0
 
 
 async def _upsert_domains(session: AsyncSession, result: CollectResult) -> dict[str, int]:
@@ -98,6 +101,47 @@ async def _replace_services(
     return len(rows)
 
 
+async def _write_vulns(
+    session: AsyncSession, result: CollectResult, ips: dict[str, int], anchor: dict[int, int]
+) -> int:
+    """Host-level CVE от источника (InternetDB) → cve_records + service_cve.
+
+    cve_records пишем минимально (severity/cvss дозаполнит синк NVD), существующие
+    не перетираем. service_cve привязываем к host-level якорю IP, confidence=high.
+    """
+    if not result.vulns:
+        return 0
+    cve_ids = sorted({v.cve_id for v in result.vulns})
+    await session.execute(
+        pg_insert(CveRecord)
+        .values([{"cve_id": c} for c in cve_ids])
+        .on_conflict_do_nothing(index_elements=[CveRecord.cve_id])
+    )
+    rows: list[dict] = []
+    seen: set[tuple[int, str]] = set()
+    for v in result.vulns:
+        ip_id = ips.get(v.ip)
+        sid = anchor.get(ip_id) if ip_id is not None else None
+        if sid is None or (sid, v.cve_id) in seen:
+            continue
+        seen.add((sid, v.cve_id))
+        rows.append(
+            {
+                "service_id": sid,
+                "cve_id": v.cve_id,
+                "match_confidence": "high",
+                "matched_cpe": v.cpe_uri,
+            }
+        )
+    if rows:
+        await session.execute(
+            pg_insert(ServiceCve)
+            .values(rows)
+            .on_conflict_do_nothing(index_elements=[ServiceCve.service_id, ServiceCve.cve_id])
+        )
+    return len(rows)
+
+
 async def persist(session: AsyncSession, result: CollectResult) -> dict:
     """Записать весь CollectResult; вернуть счётчики + id сервисов под матчинг."""
     domains = await _upsert_domains(session, result)
@@ -105,13 +149,23 @@ async def persist(session: AsyncSession, result: CollectResult) -> dict:
     await _upsert_domain_ip(session, result, domains, ips)
     n_services = await _replace_services(session, result, ips)
     service_ids: list[int] = []
+    anchor: dict[int, int] = {}  # ip_id -> host-level якорь (port=0, иначе первый сервис)
     if ips:
-        rows = await session.execute(select(Service.id).where(Service.ip_id.in_(set(ips.values()))))
-        service_ids = [r for (r,) in rows.all()]
+        rows = await session.execute(
+            select(Service.id, Service.ip_id, Service.port).where(
+                Service.ip_id.in_(set(ips.values()))
+            )
+        )
+        for sid, ip_id, port in rows.all():
+            service_ids.append(sid)
+            if ip_id not in anchor or port == _HOST_PORT:
+                anchor[ip_id] = sid
+    n_vulns = await _write_vulns(session, result, ips, anchor)
     return {
         "domains": len(domains),
         "ips": len(ips),
         "services": n_services,
+        "vulns": n_vulns,
         "degraded": len(result.degraded),
         "service_ids": service_ids,
     }

@@ -56,6 +56,13 @@ def test_internetdb_parse_ports_and_host_cpe() -> None:
     assert all(s.source == "internetdb" for s in services)
 
 
+def test_internetdb_parse_vulns() -> None:
+    # vulns теперь показываем как находки: фильтруем мусор, дедупим, сортируем.
+    data = {"vulns": ["CVE-2021-44228", "CVE-2014-0160", "CVE-2021-44228", "junk", 123]}
+    assert internetdb.parse_vulns(data) == ["CVE-2014-0160", "CVE-2021-44228"]
+    assert internetdb.parse_vulns({}) == []
+
+
 # --- Certificate Transparency --------------------------------------------- #
 def test_crtsh_parse_filters_and_strips_wildcards() -> None:
     data = [

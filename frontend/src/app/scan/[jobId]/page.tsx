@@ -37,12 +37,17 @@ export default function ScanPage() {
 
   return (
     <>
-      <h1>Скан #{jobId}</h1>
+      <div className="report-page-head">
+        <div>
+          <span className="eyebrow">Отчёт по поверхности атаки</span>
+          <h1>{report?.job.target ?? `Скан #${jobId}`}</h1>
+        </div>
+        {report && <span className="scan-id">SCAN-{String(jobId).padStart(4, "0")}</span>}
+      </div>
       {!report && <ScanProgress jobId={jobId} onDone={onDone} />}
       {loading && <p className="muted">Загрузка отчёта…</p>}
       {error && <p style={{ color: "var(--high)" }}>{error}</p>}
-      {report && <ReportView report={report} />}
-      {graph && graph.nodes.length > 0 && <GraphView graph={graph} />}
+      {report && <ReportView report={report} graph={graph} />}
     </>
   );
 }

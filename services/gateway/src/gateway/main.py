@@ -29,6 +29,7 @@ from csosint_common.health import make_health_router
 from csosint_common.models import ScanJob
 from csosint_common.schemas import ScanJobCreated, ScanRequest
 
+from .analyze import analyze_report
 from .graph import build_graph
 from .queue import enqueue_scan
 from .ratelimit import rate_limit
@@ -118,6 +119,24 @@ async def get_report(job_id: int, session: SessionDep) -> dict:
     if job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"scan job {job_id} не найден")
     return await build_report(session, job)
+
+
+@api.post("/analyze/{job_id}")
+async def analyze(job_id: int, session: SessionDep) -> dict:
+    """AI-сценарии атак поверх отчёта (Этап 6). Оборонительно, «potential» (ТЗ §6).
+
+    Опционально: без ANTHROPIC_API_KEY — 501 (self-host приносит свой ключ).
+    """
+    if not get_settings().anthropic_api_key:
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED,
+            "AI-анализ не сконфигурирован: задайте ANTHROPIC_API_KEY",
+        )
+    job = await session.get(ScanJob, job_id)
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"scan job {job_id} не найден")
+    report = await build_report(session, job)
+    return await analyze_report(report)
 
 
 @api.get("/sources")

@@ -1,6 +1,8 @@
 // Типы ответов gateway API (ТЗ §7).
 
 export type Confidence = "high" | "medium" | "low";
+export type Priority = "critical" | "high" | "medium" | "low";
+export type Posture = Priority | "none";
 
 export interface ScanCreated {
   job_id: number;
@@ -33,6 +35,8 @@ export interface Vuln {
   cvss_version: string | null;
   cvss_score: number | null;
   description: string | null;
+  risk_score: number;
+  priority: Priority;
 }
 
 export interface Report {
@@ -50,10 +54,14 @@ export interface Report {
     ips: number;
     services: number;
     vulnerabilities: number;
-    high: number;
-    medium: number;
-    low: number;
+    by_severity: { critical: number; high: number; medium: number; low: number; unknown: number };
+    by_confidence: { high: number; medium: number; low: number };
+    by_priority: { critical: number; high: number; medium: number; low: number };
+    max_risk_score: number;
+    risk_posture: Posture;
   };
+  exec_summary: string;
+  top_risks: Vuln[];
   assets: {
     domains: { id: number; fqdn: string }[];
     ips: { id: number; address: string; org_name: string | null; country: string | null }[];
@@ -69,6 +77,28 @@ export interface Report {
   };
   vulnerabilities: Vuln[];
   disclaimer: string;
+}
+
+// AI-анализ сценариев атак (Этап 6, оборонительно/гипотетически).
+export interface AttackScenario {
+  title: string;
+  likelihood: "high" | "medium" | "low";
+  based_on: string[];
+  attack_path: string[];
+  impact: string;
+  remediation: string[];
+}
+export interface AttackAnalysisResult {
+  overall_assessment: string;
+  scenarios: AttackScenario[];
+}
+export interface AnalyzeResponse {
+  target: string | null;
+  model: string;
+  findings_analyzed: number;
+  disclaimer: string;
+  analysis: AttackAnalysisResult | null;
+  note?: string;
 }
 
 export interface GraphNode {

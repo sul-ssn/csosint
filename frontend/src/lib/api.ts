@@ -1,6 +1,6 @@
 // Клиент gateway API. База настраивается через NEXT_PUBLIC_API_URL (self-host).
 
-import type { Graph, Report, ScanCreated, SourcesResponse } from "@/lib/types";
+import type { AnalyzeResponse, Graph, Report, ScanCreated, SourcesResponse } from "@/lib/types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -34,4 +34,10 @@ export async function getGraphByScan(jobId: number): Promise<Graph> {
 
 export async function getSources(): Promise<SourcesResponse> {
   return asJson<SourcesResponse>(await fetch(`${API_BASE}/api/v1/sources`));
+}
+
+export async function analyzeReport(jobId: number): Promise<AnalyzeResponse> {
+  return asJson<AnalyzeResponse>(
+    await fetch(`${API_BASE}/api/v1/analyze/${jobId}`, { method: "POST" }),
+  );
 }

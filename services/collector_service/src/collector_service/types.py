@@ -23,6 +23,16 @@ class HostService:
 
 
 @dataclass(slots=True)
+class HostVuln:
+    """CVE, заявленная источником по IP (напр. InternetDB `vulns`) — без матчинга."""
+
+    ip: str
+    cve_id: str
+    source: str
+    cpe_uri: str | None = None
+
+
+@dataclass(slots=True)
 class IpInfo:
     """RDAP/обогащение по IP: владелец диапазона, ASN, страна."""
 
@@ -52,6 +62,7 @@ class CollectResult:
     # (fqdn, ip, source) — рёбра «домен резолвится в IP»
     resolutions: set[tuple[str, str, str]] = field(default_factory=set)
     services: list[HostService] = field(default_factory=list)
+    vulns: list[HostVuln] = field(default_factory=list)
     ip_infos: list[IpInfo] = field(default_factory=list)
     dns_records: list[DnsRecords] = field(default_factory=list)
     # источник -> причина деградации (skipped: нет ключа / failed: источник упал)
@@ -65,6 +76,9 @@ class CollectResult:
 
     def add_service(self, svc: HostService) -> None:
         self.services.append(svc)
+
+    def add_vuln(self, ip: str, cve_id: str, source: str, cpe_uri: str | None = None) -> None:
+        self.vulns.append(HostVuln(ip=ip, cve_id=cve_id, source=source, cpe_uri=cpe_uri))
 
     def add_ip_info(self, info: IpInfo) -> None:
         self.ip_infos.append(info)
