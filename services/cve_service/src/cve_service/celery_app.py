@@ -1,6 +1,6 @@
 """Celery-приложение cve-service (design-nvd-sync §9).
 
-Единый брокер — Redis (ТЗ §2). Таски синхронные, внутри гоняют async-пайплайны
+Единый брокер — Redis. Таски синхронные, внутри гоняют async-пайплайны
 через `asyncio.run` с ОДНОРАЗОВЫМ engine на вызов: asyncpg-движок нельзя делить
 между event-loop'ами разных `asyncio.run`, поэтому создаём и закрываем его тут.
 """
@@ -37,6 +37,10 @@ celery_app.conf.update(
     beat_schedule={
         "nvd-sync-daily": {
             "task": "cve_service.nvd_incremental_sync",
+            "schedule": 24 * 60 * 60,
+        },
+        "threat-intel-sync-daily": {
+            "task": "cve_service.threat_intel_sync",
             "schedule": 24 * 60 * 60,
         },
     },
@@ -101,6 +105,14 @@ def nvd_sync() -> dict:
 @celery_app.task(name="cve_service.nvd_incremental_sync")
 def nvd_incremental_sync() -> dict:
     return nvd_sync()
+
+
+@celery_app.task(name="cve_service.threat_intel_sync")
+def threat_intel_sync() -> dict:
+    """Обновить EPSS и authoritative CISA KEV для CVE в локальной базе."""
+    from .threat_intel import sync_threat_intel
+
+    return _run_async(sync_threat_intel)
 
 
 @celery_app.task(name="cve_service.match_service")

@@ -1,4 +1,4 @@
-"""Построение графа связей из PostgreSQL (ТЗ §2.3, §5.2).
+"""Построение графа связей из PostgreSQL.
 
 Отдельной графовой СУБД нет: связная компонента активов считается **рекурсивным
 CTE** по двудольному графу `domain ↔ ip` (общий host связывает разные домены),
@@ -13,7 +13,16 @@ from dataclasses import dataclass, field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from csosint_common.models import CveRecord, Domain, DomainIp, IpAddress, Service, ServiceCve
+from csosint_common.models import (
+    Certificate,
+    CveRecord,
+    Domain,
+    DomainCertificate,
+    DomainIp,
+    IpAddress,
+    Service,
+    ServiceCve,
+)
 
 # Рекурсивная компонента: старт-узел + замыкание по рёбрам domain↔ip.
 # Одна самоссылка на `comp` в рекурсивном терме (требование Postgres) —
@@ -39,7 +48,9 @@ _SEED_IP = "SELECT 'ip'::text, id FROM ip_addresses WHERE address = :val"
 @dataclass(slots=True)
 class GraphData:
     domains: list[tuple] = field(default_factory=list)  # (id, fqdn)
-    ips: list[tuple] = field(default_factory=list)  # (id, address, org_name, country)
+    ips: list[tuple] = field(default_factory=list)  # id,address,org,country,asn,cidr,start,end
+    certificates: list[tuple] = field(default_factory=list)  # id,fingerprint,issuer,not_after
+    edges_domain_certificate: list[tuple] = field(default_factory=list)
     edges_domain_ip: list[tuple] = field(default_factory=list)  # (domain_id, ip_id)
     services: list[tuple] = field(
         default_factory=list
@@ -65,8 +76,15 @@ def to_cytoscape(g: GraphData) -> dict:
 
     for did, fqdn in g.domains:
         nodes[f"domain:{did}"] = _node(f"domain:{did}", fqdn, "domain")
-    for iid, address, org, country in g.ips:
-        nodes[f"ip:{iid}"] = _node(f"ip:{iid}", address, "ip", org_name=org, country=country)
+    for ip_row in g.ips:
+        iid, address, org, country, *network = ip_row
+        asn = network[0] if len(network) > 0 else None
+        cidr = network[1] if len(network) > 1 else None
+        start = network[2] if len(network) > 2 else None
+        end = network[3] if len(network) > 3 else None
+        nodes[f"ip:{iid}"] = _node(
+            f"ip:{iid}", address, "ip", org_name=org, country=country, asn=asn, network=cidr
+        )
         if country:
             cid = f"country:{country}"
             nodes.setdefault(cid, _node(cid, country, "country"))
@@ -75,6 +93,25 @@ def to_cytoscape(g: GraphData) -> dict:
             oid = f"org:{org}"
             nodes.setdefault(oid, _node(oid, org, "org"))
             edges[f"ip:{iid}->{oid}"] = _edge(f"ip:{iid}", oid, "hosted")
+        if asn:
+            aid = f"asn:{asn}"
+            nodes.setdefault(aid, _node(aid, asn, "asn"))
+            edges[f"ip:{iid}->{aid}"] = _edge(f"ip:{iid}", aid, "announced_by")
+        network_label = cidr or (f"{start}–{end}" if start and end else None)
+        if network_label:
+            nid = f"netblock:{network_label}"
+            nodes.setdefault(nid, _node(nid, network_label, "netblock"))
+            edges[f"ip:{iid}->{nid}"] = _edge(f"ip:{iid}", nid, "member_of")
+    for cert_id, fingerprint, issuer, not_after in g.certificates:
+        short = fingerprint.split(":", 1)[-1][:12]
+        nodes[f"certificate:{cert_id}"] = _node(
+            f"certificate:{cert_id}",
+            f"cert {short}",
+            "certificate",
+            fingerprint=fingerprint,
+            issuer=issuer,
+            not_after=not_after.isoformat() if not_after else None,
+        )
     for sid, ip_id, port, product, version, source in g.services:
         label = product or "service"
         if version:
@@ -94,6 +131,10 @@ def to_cytoscape(g: GraphData) -> dict:
             edges[f"domain:{domain_id}->ip:{ip_id}"] = _edge(
                 f"domain:{domain_id}", f"ip:{ip_id}", "resolves"
             )
+    for domain_id, cert_id in g.edges_domain_certificate:
+        src, dst = f"domain:{domain_id}", f"certificate:{cert_id}"
+        if src in nodes and dst in nodes:
+            edges[f"{src}->{dst}"] = _edge(src, dst, "covered_by")
     for service_id, cve_id, confidence in g.service_cves:
         src, dst = f"service:{service_id}", f"cve:{cve_id}"
         if src in nodes and dst in nodes:
@@ -114,6 +155,49 @@ async def _component(session: AsyncSession, seed: str, val: str) -> tuple[list[i
 async def _fetch(session: AsyncSession, domain_ids: list[int], ip_ids: list[int]) -> GraphData:
     g = GraphData()
     if domain_ids:
+        seed_cert_ids = list(
+            (
+                await session.scalars(
+                    select(DomainCertificate.certificate_id).where(
+                        DomainCertificate.domain_id.in_(domain_ids)
+                    )
+                )
+            ).all()
+        )
+        if seed_cert_ids:
+            g.edges_domain_certificate = [
+                tuple(row)
+                for row in (
+                    await session.execute(
+                        select(
+                            DomainCertificate.domain_id, DomainCertificate.certificate_id
+                        ).where(DomainCertificate.certificate_id.in_(seed_cert_ids))
+                    )
+                ).all()
+            ]
+            domain_ids = sorted({*domain_ids, *(row[0] for row in g.edges_domain_certificate)})
+            g.certificates = [
+                tuple(row)
+                for row in (
+                    await session.execute(
+                        select(
+                            Certificate.id,
+                            Certificate.fingerprint,
+                            Certificate.issuer,
+                            Certificate.not_after,
+                        ).where(Certificate.id.in_(seed_cert_ids))
+                    )
+                ).all()
+            ]
+            linked_ip_ids = list(
+                (
+                    await session.scalars(
+                        select(DomainIp.ip_id).where(DomainIp.domain_id.in_(domain_ids))
+                    )
+                ).all()
+            )
+            ip_ids = sorted({*ip_ids, *linked_ip_ids})
+    if domain_ids:
         g.domains = [
             tuple(r)
             for r in (
@@ -128,7 +212,14 @@ async def _fetch(session: AsyncSession, domain_ids: list[int], ip_ids: list[int]
             for r in (
                 await session.execute(
                     select(
-                        IpAddress.id, IpAddress.address, IpAddress.org_name, IpAddress.country
+                        IpAddress.id,
+                        IpAddress.address,
+                        IpAddress.org_name,
+                        IpAddress.country,
+                        IpAddress.asn,
+                        IpAddress.network_cidr,
+                        IpAddress.network_start,
+                        IpAddress.network_end,
                     ).where(IpAddress.id.in_(ip_ids))
                 )
             ).all()

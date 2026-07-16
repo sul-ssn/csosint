@@ -1,4 +1,4 @@
-"""collector-service HTTP-фасад (ТЗ §2.2).
+"""collector-service HTTP-фасад.
 
 Внутренний сервис: сбор идёт в Celery-воркере, публичный вход — у gateway.
 Здесь — health для оркестрации Docker Compose."""

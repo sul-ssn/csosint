@@ -8,6 +8,7 @@ from gateway.risk import (
     build_exec_summary,
     priority,
     rank_findings,
+    risk_factors,
     risk_score,
     severity_bucket,
     summarize,
@@ -28,6 +29,32 @@ from gateway.risk import (
 )
 def test_risk_score(cvss, conf, expected):
     assert risk_score(cvss, conf) == expected
+
+
+def test_exploitation_intel_increases_risk_with_cap():
+    assert risk_score(7.0, "high", epss_score=0.8) == 82.0
+    assert risk_score(7.0, "high", epss_score=0.8, kev=True) == 100.0
+    assert risk_score(5.0, "medium", kev=True, ransomware_use="Known") == 62.5
+
+
+def test_risk_factors_explain_kev_epss_and_ransomware():
+    factors = risk_factors(
+        {
+            "cvss_score": 8.0,
+            "match_confidence": "high",
+            "epss_score": 0.42,
+            "kev": True,
+            "kev_ransomware_use": "Known",
+        }
+    )
+    assert [item["factor"] for item in factors] == [
+        "cvss",
+        "confidence",
+        "epss",
+        "kev",
+        "ransomware",
+    ]
+    assert sum(item["impact"] for item in factors if item["factor"] in {"epss", "kev"}) == 26.3
 
 
 @pytest.mark.parametrize(

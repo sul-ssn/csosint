@@ -1,4 +1,4 @@
-"""SSRF-guard и валидация ввода (ТЗ §11, §12)."""
+"""SSRF-guard и валидация ввода."""
 
 from __future__ import annotations
 

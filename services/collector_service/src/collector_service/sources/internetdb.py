@@ -1,4 +1,4 @@
-"""InternetDB — primary-источник портов/CPE/CVE по IP (ТЗ §4.1).
+"""InternetDB — primary-источник портов/CPE/CVE по IP.
 
 Бесплатно, без ключа: `https://internetdb.shodan.io/{ip}`. Отдаёт открытые порты,
 hostnames, host-level CPE, теги и `vulns` (готовые CVE от Shodan). `vulns`

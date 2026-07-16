@@ -1,4 +1,4 @@
-"""VirusTotal (опц., free API key) — пассивный DNS/поддомены (ТЗ §4.5).
+"""VirusTotal (опц., free API key) — пассивный DNS/поддомены.
 Нет ключа → пропуск."""
 
 from __future__ import annotations

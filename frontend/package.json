@@ -2,7 +2,7 @@
   "name": "ospc-frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "OSPC UI — форма цели, прогресс сбора, отчёт и граф связей (ТЗ §7, Этап 4)",
+  "description": "OSPC UI — форма цели, прогресс сбора, отчёт и граф связей",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

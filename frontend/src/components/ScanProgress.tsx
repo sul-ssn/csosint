@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { wsBase } from "@/lib/api";
 import type { ProgressEvent } from "@/lib/types";
 
-// Живой прогресс скана через WS /ws/scan/{jobId} (ТЗ §7).
+// Живой прогресс скана через WS /ws/scan/{jobId}.
 export default function ScanProgress({
   jobId,
   onDone,

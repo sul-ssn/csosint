@@ -1,4 +1,4 @@
-"""Прогресс сбора: события источников через progress-callback (ТЗ §7)."""
+"""Прогресс сбора: события источников через progress-callback."""
 
 from __future__ import annotations
 

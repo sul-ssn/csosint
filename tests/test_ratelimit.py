@@ -1,4 +1,4 @@
-"""Rate-limiting эндпоинтов gateway (ТЗ §7)."""
+"""Rate-limiting эндпоинтов gateway."""
 
 from __future__ import annotations
 

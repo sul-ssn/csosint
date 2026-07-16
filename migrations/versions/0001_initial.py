@@ -1,4 +1,4 @@
-"""initial schema (ТЗ §5.1)
+"""initial schema
 
 Revision ID: 0001
 Revises:

@@ -1,7 +1,7 @@
-"""ORM-модели PostgreSQL — схема из ТЗ §5.1.
+"""ORM-модели PostgreSQL.
 
 PostgreSQL хранит и сырьё, и локальную копию NVD, и связи графа (граф считается
-рекурсивными CTE, отдельной графовой БД нет — ТЗ §2.3).
+рекурсивными CTE, отдельная графовая БД не используется.
 """
 
 from __future__ import annotations
@@ -72,11 +72,14 @@ class IpAddress(Base):
     asn: Mapped[str | None] = mapped_column(String(32))
     org_name: Mapped[str | None] = mapped_column(String(512))
     country: Mapped[str | None] = mapped_column(String(2))
+    network_cidr: Mapped[str | None] = mapped_column(String(64))
+    network_start: Mapped[str | None] = mapped_column(String(45))
+    network_end: Mapped[str | None] = mapped_column(String(45))
     geo: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class DomainIp(Base):
-    """M:N «домен резолвится в несколько IP» (ТЗ §5.2)."""
+    """M:N «домен резолвится в несколько IP»."""
 
     __tablename__ = "domain_ip"
 
@@ -87,6 +90,37 @@ class DomainIp(Base):
         ForeignKey("ip_addresses.id", ondelete="CASCADE"), primary_key=True
     )
     resolved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Certificate(Base):
+    __tablename__ = "certificates"
+
+    id: Mapped[int] = _pk()
+    fingerprint: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    issuer: Mapped[str | None] = mapped_column(String(512))
+    not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    not_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    first_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DomainCertificate(Base):
+    __tablename__ = "domain_certificate"
+
+    domain_id: Mapped[int] = mapped_column(
+        ForeignKey("domains.id", ondelete="CASCADE"), primary_key=True
+    )
+    certificate_id: Mapped[int] = mapped_column(
+        ForeignKey("certificates.id", ondelete="CASCADE"), primary_key=True
+    )
+    observed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
@@ -125,7 +159,33 @@ class ScanJob(Base):
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error: Mapped[str | None] = mapped_column(Text)
-    degraded_sources: Mapped[dict | None] = mapped_column(JSONB)  # частичные сбои (ТЗ §4)
+    degraded_sources: Mapped[dict | None] = mapped_column(JSONB)  # частичные сбои
+
+
+class ScanSnapshot(Base):
+    """Неизменяемое наблюдение актива в рамках конкретного скана.
+
+    Глобальные asset-таблицы показывают текущее состояние, snapshot сохраняет
+    фактический результат каждого запуска для истории и change detection.
+    """
+
+    __tablename__ = "scan_snapshots"
+    __table_args__ = (
+        UniqueConstraint("job_id", "entity_type", "entity_key", name="uq_scan_snapshot_entity"),
+        Index("ix_scan_snapshot_job_type", "job_id", "entity_type"),
+    )
+
+    id: Mapped[int] = _pk()
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("scan_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_key: Mapped[str] = mapped_column(String(768), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -139,11 +199,20 @@ class CveRecord(Base):
     description: Mapped[str | None] = mapped_column(Text)
     published: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     modified: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # CVSS: версия обязательна, приоритет v3.1→v3.0→v2 (ТЗ §5.1)
+    # CVSS: версия обязательна, приоритет v3.1→v3.0→v2
     cvss_version: Mapped[str | None] = mapped_column(String(8))
     cvss_score: Mapped[float | None] = mapped_column(Float)
     cvss_vector: Mapped[str | None] = mapped_column(String(128))
     severity: Mapped[str | None] = mapped_column(String(16))
+    # Exploitability intelligence: FIRST EPSS + CISA KEV.
+    epss_score: Mapped[float | None] = mapped_column(Float)
+    epss_percentile: Mapped[float | None] = mapped_column(Float)
+    epss_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    kev: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    kev_date_added: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    kev_due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    kev_required_action: Mapped[str | None] = mapped_column(Text)
+    kev_ransomware_use: Mapped[str | None] = mapped_column(String(32))
     raw: Mapped[dict | None] = mapped_column(JSONB)  # пересбор без ре-фетча NVD
 
 

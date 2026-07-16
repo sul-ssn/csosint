@@ -1,7 +1,7 @@
 [project]
 name = "cve-service"
 version = "0.1.0"
-description = "cve-service — синк NVD и матчинг product+version→CVE (ТЗ §4.2, §6)"
+description = "cve-service — синк NVD и матчинг product+version→CVE"
 requires-python = ">=3.12"
 dependencies = [
     "csosint-common",

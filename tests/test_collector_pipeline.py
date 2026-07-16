@@ -1,4 +1,4 @@
-"""Оркестрация сбора: degraded/skip-логика и провенанс (ТЗ §4, §7). Сеть — respx."""
+"""Оркестрация сбора: degraded/skip-логика и провенанс. Сеть — respx."""
 
 from __future__ import annotations
 

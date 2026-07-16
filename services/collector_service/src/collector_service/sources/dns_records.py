@@ -1,4 +1,4 @@
-"""DNS-записи через dnspython (ТЗ §4.4).
+"""DNS-записи через dnspython.
 
 A/AAAA/MX/NS/TXT. Резолвер инъектируется (`resolve`) — юнит-тесты гоняют парсинг
 на фейковом резолвере, без реальных DNS-запросов. Поддомены берём пассивно из CT
@@ -47,7 +47,7 @@ async def collect(
         getattr(rec, attr).extend(cleaned)
         if rdtype in ("A", "AAAA"):
             for ip in cleaned:
-                # SSRF-guard (ТЗ §11.1): приватные/служебные IP в recon не берём —
+                # SSRF-guard: приватные/служебные IP в recon не берём —
                 # проверка на ФАКТИЧЕСКОМ адресе после резолва (DNS rebinding).
                 if is_public_ip(ip):
                     result.add_resolution(fqdn, ip, SOURCE)

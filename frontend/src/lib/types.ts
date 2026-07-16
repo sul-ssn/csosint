@@ -1,4 +1,4 @@
-// Типы ответов gateway API (ТЗ §7).
+// Типы ответов gateway API.
 
 export type Confidence = "high" | "medium" | "low";
 export type Priority = "critical" | "high" | "medium" | "low";
@@ -35,8 +35,16 @@ export interface Vuln {
   cvss_version: string | null;
   cvss_score: number | null;
   description: string | null;
+  epss_score: number | null;
+  epss_percentile: number | null;
+  kev: boolean;
+  kev_date_added: string | null;
+  kev_due_date: string | null;
+  kev_required_action: string | null;
+  kev_ransomware_use: string | null;
   risk_score: number;
   priority: Priority;
+  risk_factors: { factor: string; impact: number; detail: string }[];
 }
 
 export interface Report {
@@ -59,12 +67,84 @@ export interface Report {
     by_priority: { critical: number; high: number; medium: number; low: number };
     max_risk_score: number;
     risk_posture: Posture;
+    known_exploited: number;
+    high_epss: number;
   };
   exec_summary: string;
   top_risks: Vuln[];
+  history: {
+    baseline: boolean;
+    reliable: boolean;
+    suppressed_removed: number;
+    previous_job: { id: number; created_at: string; finished_at: string | null } | null;
+    summary: {
+      added: number;
+      changed: number;
+      removed: number;
+      total: number;
+      by_type: Record<string, number>;
+    };
+    changes: {
+      status: "added" | "changed" | "removed";
+      entity_type: string;
+      entity_key: string;
+      before: Record<string, unknown> | null;
+      after: Record<string, unknown> | null;
+      changed_fields: string[];
+    }[];
+  };
+  deep_analysis: {
+    summary: {
+      findings: number;
+      critical_findings: number;
+      high_findings: number;
+      attack_paths: number;
+      high_likelihood_paths: number;
+    };
+    findings: {
+      id: string;
+      category: "exposure" | "hygiene" | "misconfiguration";
+      kind: string;
+      severity: Priority;
+      title: string;
+      asset: string;
+      confidence: Confidence;
+      evidence: string[];
+      remediation: string;
+    }[];
+    attack_paths: {
+      id: string;
+      title: string;
+      likelihood: "high" | "medium" | "low";
+      risk_score: number;
+      confidence: Confidence;
+      nodes: { type: string; label: string }[];
+      evidence: string[];
+      impact: string;
+      remediation: string;
+    }[];
+  };
   assets: {
     domains: { id: number; fqdn: string }[];
-    ips: { id: number; address: string; org_name: string | null; country: string | null }[];
+    ips: {
+      id: number;
+      address: string;
+      org_name: string | null;
+      country: string | null;
+      asn: string | null;
+      network_cidr: string | null;
+      network_start: string | null;
+      network_end: string | null;
+    }[];
+    certificates: {
+      id: number;
+      fingerprint: string;
+      issuer: string | null;
+      not_before: string | null;
+      not_after: string | null;
+      source: string;
+      domains: string[];
+    }[];
     services: {
       id: number;
       ip: string | null;

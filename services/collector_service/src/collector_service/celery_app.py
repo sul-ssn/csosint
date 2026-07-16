@@ -1,4 +1,4 @@
-"""Celery-приложение collector-service (ТЗ §2, §7).
+"""Celery-приложение collector-service.
 
 Таск `run_scan` собирает данные по цели, пишет их в БД и ставит матчинг найденных
 сервисов в cve-service (через общий Redis-брокер, по имени таски). async-пайплайн
@@ -76,14 +76,14 @@ def run_scan(job_id: int) -> dict:
             await prog.emit({"event": "started", "status": "running"})
             result = await collect(target, target_type, st, progress=prog.emit)
             async with sessionmaker() as session, session.begin():
-                counts = await persist(session, result)
+                counts = await persist(session, result, job_id=job_id)
                 job = await session.get(ScanJob, job_id)
                 job.status = "done"
                 job.finished_at = datetime.now(UTC)
                 job.degraded_sources = result.degraded or None
             service_ids = counts.pop("service_ids", [])
             await prog.emit({"event": "persisted", "counts": counts})
-            # Зачейнить матчинг product+version→CVE по новым сервисам (ТЗ §6).
+            # Зачейнить матчинг product+version→CVE по новым сервисам.
             # Отдельная очередь `cve` — чтобы матчинг разбирал cve-воркер, а не collector.
             for sid in service_ids:
                 celery_app.send_task("cve_service.match_service", args=[sid], queue="cve")

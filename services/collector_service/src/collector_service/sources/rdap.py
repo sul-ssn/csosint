@@ -1,4 +1,4 @@
-"""RDAP по IP — владелец диапазона/страна (ТЗ §4.4).
+"""RDAP по IP — владелец диапазона/страна.
 
 RDAP вместо whois: структурированный JSON, без хрупкого парсинга. Ходим через
 редиректор `rdap.org`, который направляет к authoritative RDAP-серверу RIR.
@@ -32,7 +32,24 @@ def _org_from_entities(data: dict) -> str | None:
 def parse_ip(ip: str, data: dict) -> IpInfo:
     # Верхнеуровневое `name` — имя сети (напр. "GOOGLE"); org уточняем по entities.
     org = _org_from_entities(data) or data.get("name")
-    return IpInfo(ip=ip, source=SOURCE, org_name=org, country=data.get("country"))
+    asns = data.get("arin_originas0_originautnums") or []
+    asn = f"AS{asns[0]}" if asns else None
+    cidr = None
+    for item in data.get("cidr0_cidrs", []):
+        prefix = item.get("v4prefix") or item.get("v6prefix")
+        if prefix and item.get("length") is not None:
+            cidr = f"{prefix}/{item['length']}"
+            break
+    return IpInfo(
+        ip=ip,
+        source=SOURCE,
+        asn=asn,
+        org_name=org,
+        country=data.get("country"),
+        network_cidr=cidr,
+        network_start=data.get("startAddress"),
+        network_end=data.get("endAddress"),
+    )
 
 
 async def collect_ip(result: CollectResult, ip: str, client) -> None:

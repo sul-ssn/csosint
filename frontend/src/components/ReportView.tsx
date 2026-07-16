@@ -31,6 +31,14 @@ function cvssText(v: Vuln): string {
   return `${s ?? "—"}${v.severity ? ` ${v.severity}` : ""}`;
 }
 
+function ExploitSignals({ vuln }: { vuln: Vuln }) {
+  return <span className="exploit-signals">
+    {vuln.kev && <span className="intel-badge kev" title={vuln.kev_required_action ?? "Known Exploited Vulnerability"}>KEV</span>}
+    {vuln.epss_score != null && <span className={`intel-badge epss ${vuln.epss_score >= .1 ? "hot" : ""}`} title={`EPSS percentile ${((vuln.epss_percentile ?? 0) * 100).toFixed(1)}%`}>EPSS {(vuln.epss_score * 100).toFixed(1)}%</span>}
+    {vuln.kev_ransomware_use?.toLowerCase() === "known" && <span className="intel-badge ransomware">RANSOMWARE</span>}
+  </span>;
+}
+
 function nvdLink(cve: string) {
   return (
     <a href={`https://nvd.nist.gov/vuln/detail/${cve}`} target="_blank" rel="noreferrer">
@@ -47,10 +55,22 @@ const POSTURE_LABEL: Record<string, string> = {
   none: "уязвимостей нет",
 };
 
-type Section = "overview" | "vulnerabilities" | "assets" | "graph";
+const ENTITY_LABEL: Record<string, string> = {
+  domain: "Домен",
+  ip: "IP-адрес",
+  resolution: "DNS-связь",
+  service: "Сервис",
+  dns: "DNS-записи",
+  vulnerability: "CVE",
+};
+
+const CHANGE_LABEL = { added: "Добавлено", changed: "Изменено", removed: "Исчезло" };
+
+type Section = "overview" | "analysis" | "vulnerabilities" | "assets" | "graph";
 
 const NAV: { id: Section; label: string }[] = [
   { id: "overview", label: "Обзор" },
+  { id: "analysis", label: "Анализ" },
   { id: "vulnerabilities", label: "Уязвимости" },
   { id: "assets", label: "Активы" },
   { id: "graph", label: "Карта связей" },
@@ -58,6 +78,8 @@ const NAV: { id: Section; label: string }[] = [
 
 export default function ReportView({ report, graph }: { report: Report; graph: Graph | null }) {
   const { summary, assets, vulnerabilities, top_risks, exec_summary, job, disclaimer } = report;
+  const history = report.history;
+  const deep = report.deep_analysis;
   const sev = summary.by_severity;
   const posture = summary.risk_posture as Priority | "none";
   const [section, setSection] = useState<Section>("overview");
@@ -91,6 +113,7 @@ export default function ReportView({ report, graph }: { report: Report; graph: G
           >
             {item.label}
             {item.id === "vulnerabilities" && <span>{summary.vulnerabilities}</span>}
+            {item.id === "analysis" && deep && <span>{deep.summary.findings + deep.summary.attack_paths}</span>}
             {item.id === "assets" && <span>{summary.ips + summary.services}</span>}
           </button>
         ))}
@@ -133,6 +156,45 @@ export default function ReportView({ report, graph }: { report: Report; graph: G
         </div>
       </section>
 
+      {(summary.known_exploited > 0 || summary.high_epss > 0) && <div className="intel-summary">
+        <span className="intel-icon">!</span>
+        <div><b>Есть признаки реальной эксплуатации</b><small>{summary.known_exploited} CVE входят в CISA KEV · {summary.high_epss} имеют EPSS ≥ 10%</small></div>
+      </div>}
+
+      {history && <section className="report-card changes-card">
+        <div className="section-head">
+          <div>
+            <span className="section-kicker">Мониторинг поверхности</span>
+            <h2>Что изменилось</h2>
+            <p>{history.previous_job ? `По сравнению со сканом #${history.previous_job.id}` : "Первый снимок этой цели"}</p>
+          </div>
+          {history.baseline && <div className="change-counters">
+            <span className="added">+{history.summary.added}<small>новых</small></span>
+            <span className="changed">{history.summary.changed}<small>изменено</small></span>
+            <span className="removed">−{history.summary.removed}<small>исчезло</small></span>
+          </div>}
+        </div>
+        {history.baseline && !history.reliable && <div className="history-quality">
+          Сравнение частичное: один или несколько источников недоступны.
+          {history.suppressed_removed > 0 && ` ${history.suppressed_removed} неподтверждённых исчезновений скрыто.`}
+        </div>}
+        {!history.baseline ? (
+          <div className="baseline-state"><b>Базовый снимок создан</b><span>Изменения появятся после следующего сканирования этой цели.</span></div>
+        ) : history.summary.total === 0 ? (
+          <div className="baseline-state stable"><b>Изменений не обнаружено</b><span>Наблюдаемая поверхность атаки осталась стабильной.</span></div>
+        ) : (
+          <div className="change-list">
+            {history.changes.slice(0, 8).map((change) => <div className="change-row" key={`${change.status}:${change.entity_type}:${change.entity_key}`}>
+              <span className={`change-status ${change.status}`}>{CHANGE_LABEL[change.status]}</span>
+              <span className="change-kind">{ENTITY_LABEL[change.entity_type] ?? change.entity_type}</span>
+              <b className="mono">{change.entity_key}</b>
+              {change.changed_fields.length > 0 && <span className="change-fields">{change.changed_fields.join(", ")}</span>}
+            </div>)}
+            {history.changes.length > 8 && <div className="more-changes">Ещё {history.changes.length - 8} изменений</div>}
+          </div>
+        )}
+      </section>}
+
         {job.degraded_sources && Object.keys(job.degraded_sources).length > 0 && (
           <div className="source-warning">
             <b>Неполные данные</b><span>
@@ -150,7 +212,7 @@ export default function ReportView({ report, graph }: { report: Report; graph: G
             {top_risks.map((v, i) => (
               <div className="risk-item" key={`top-${v.service_id}-${v.cve_id}-${i}`}>
                 <span className={`badge ${v.priority}`}>{v.priority}</span>
-                <span className="risk-main"><b>{nvdLink(v.cve_id)}</b><small>{v.product ?? "Неизвестный сервис"}{v.version ? ` ${v.version}` : ""}</small></span>
+                <span className="risk-main"><b>{nvdLink(v.cve_id)}</b><small>{v.product ?? "Неизвестный сервис"}{v.version ? ` ${v.version}` : ""}</small><ExploitSignals vuln={v} /></span>
                 <span className="risk-host mono">{v.ip}:{v.port}</span>
                 <span className="risk-cvss"><b>{v.cvss_score ?? "—"}</b><small>CVSS</small></span>
                 <span className="risk-score"><b>{v.risk_score}</b><small>RISK</small></span>
@@ -163,6 +225,39 @@ export default function ReportView({ report, graph }: { report: Report; graph: G
       <AttackAnalysisView jobId={job.id} />
       <p className="disclaimer">{disclaimer}</p>
       </div>}
+
+      {section === "analysis" && <section className="report-section analysis-section">
+        <div className="section-head page-section-head"><div><span className="section-kicker">Детерминированные правила</span><h2>Глубокий анализ поверхности</h2><p>Экспозиции, гигиена и вероятные пути атаки с доказательствами</p></div></div>
+        {!deep ? <div className="empty-state"><b>Анализ недоступен</b><span>Перезапустите gateway и обновите отчёт.</span></div> : <>
+          <div className="analysis-metrics">
+            <div><strong>{deep.summary.findings}</strong><span>наблюдений</span></div>
+            <div><strong>{deep.summary.critical_findings + deep.summary.high_findings}</strong><span>high / critical</span></div>
+            <div><strong>{deep.summary.attack_paths}</strong><span>путей атаки</span></div>
+            <div><strong>{deep.summary.high_likelihood_paths}</strong><span>high likelihood</span></div>
+          </div>
+
+          <div className="analysis-layout">
+            <div className="analysis-column">
+              <div className="analysis-title"><span>Exposure findings</span><b>{deep.findings.length}</b></div>
+              {deep.findings.length === 0 ? <div className="mini-empty">Значимых экспозиций по текущим правилам не найдено.</div> : deep.findings.map((finding) => <article className="finding-card" key={finding.id}>
+                <div className="finding-head"><span className={`badge ${finding.severity}`}>{finding.severity}</span><span className="finding-category">{finding.category}</span><span className={`confidence-dot ${finding.confidence}`}>{finding.confidence}</span></div>
+                <h3>{finding.title}</h3><code>{finding.asset}</code>
+                <div className="evidence-list">{finding.evidence.map((item) => <span key={item}>{item}</span>)}</div>
+                <div className="remediation-box"><b>Что сделать</b><span>{finding.remediation}</span></div>
+              </article>)}
+            </div>
+
+            <div className="analysis-column paths-column">
+              <div className="analysis-title"><span>Attack paths</span><b>{deep.attack_paths.length}</b></div>
+              {deep.attack_paths.length === 0 ? <div className="mini-empty">Приоритетных путей атаки не построено.</div> : deep.attack_paths.map((path) => <article className="path-card" key={path.id}>
+                <div className="path-head"><span className={`badge ${path.likelihood}`}>{path.likelihood}</span><b>{path.title}</b><span className="path-risk">{path.risk_score}</span></div>
+                <div className="path-flow">{path.nodes.map((node, index) => <div className="path-step" key={`${node.type}:${node.label}`}><span className={`path-node ${node.type}`}>{node.label}</span>{index < path.nodes.length - 1 && <i>→</i>}</div>)}</div>
+                <details className="path-details"><summary>Доказательства и меры</summary><div><b>Evidence</b>{path.evidence.map((item) => <span key={item}>{item}</span>)}<b>Воздействие</b><span>{path.impact}</span><b>Что сделать</b><span>{path.remediation}</span></div></details>
+              </article>)}
+            </div>
+          </div>
+        </>}
+      </section>}
 
       {section === "vulnerabilities" && <section className="report-section report-card">
         <div className="section-head"><div><span className="section-kicker">Матчинг CPE / NVD</span><h2>Потенциальные уязвимости</h2><p>{vulnerabilities.length} совпадений, отсортированных по уровню риска</p></div></div>
@@ -182,6 +277,7 @@ export default function ReportView({ report, graph }: { report: Report; graph: G
                 <th>Risk</th>
                 <th>CVE</th>
                 <th>CVSS</th>
+                <th>Эксплуатация</th>
                 <th>Достоверность</th>
                 <th>Сервис</th>
                 <th>Хост</th>
@@ -195,6 +291,7 @@ export default function ReportView({ report, graph }: { report: Report; graph: G
                   <td>{v.risk_score}</td>
                   <td>{nvdLink(v.cve_id)}</td>
                   <td>{cvssText(v)}</td>
+                  <td><ExploitSignals vuln={v} /></td>
                   <td>
                     <span className={`badge ${v.match_confidence}`}>{v.match_confidence}</span>
                   </td>
@@ -202,6 +299,7 @@ export default function ReportView({ report, graph }: { report: Report; graph: G
                     {v.product ?? "—"}
                     {v.version ? ` ${v.version}` : ""}
                     {v.description && <small className="cell-description">{v.description}</small>}
+                    {v.risk_factors?.length > 0 && <small className="risk-explanation">{v.risk_factors.map((factor) => factor.detail).join(" · ")}</small>}
                   </td>
                   <td className="muted">
                     {v.ip}:{v.port}
@@ -220,10 +318,17 @@ export default function ReportView({ report, graph }: { report: Report; graph: G
         <div className="asset-grid">
           {servicesByIp.map((ip) => <article className="asset-card" key={ip.id}>
             <div className="asset-head"><div><span className="asset-icon">IP</span><b className="mono">{ip.address}</b></div><span>{ip.country ?? "—"}</span></div>
-            <p>{ip.org_name ?? "Организация не определена"}</p>
+            <p>{ip.org_name ?? "Организация не определена"}{ip.asn ? ` · ${ip.asn}` : ""}{ip.network_cidr ? ` · ${ip.network_cidr}` : ""}</p>
             <div className="service-list">{ip.services.length ? ip.services.map((s) => <div key={s.id}><span className="port mono">{s.port}</span><span><b>{s.product ?? "Неизвестный сервис"}</b><small>{s.version ?? s.source ?? "Версия не определена"}</small></span><span className="source-tag">{s.source ?? "source"}</span></div>) : <span className="muted">Сервисы не обнаружены</span>}</div>
           </article>)}
         </div>
+        {assets.certificates?.length > 0 && <div className="certificate-grid">
+          {assets.certificates.map((cert) => <article className="certificate-card" key={cert.id}>
+            <div><span className="cert-icon">TLS</span><b>{cert.issuer ?? "Issuer не определён"}</b></div>
+            <code>{cert.fingerprint}</code>
+            <span>{cert.domains.length} доменов · до {cert.not_after ? new Date(cert.not_after).toLocaleDateString("ru-RU") : "—"}</span>
+          </article>)}
+        </div>}
       </section>}
 
       {section === "graph" && <section className="report-section graph-section">

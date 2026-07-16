@@ -1,4 +1,4 @@
-"""Censys (опц., free tier) — хосты/сервисы, альтернатива Shodan (ТЗ §4.5).
+"""Censys (опц., free tier) — хосты/сервисы, альтернатива Shodan.
 
 Search API v2 с Basic-auth (api_id:api_secret). Нет пары ключей → пропуск."""
 

@@ -1,7 +1,7 @@
 [project]
 name = "gateway"
 version = "0.1.0"
-description = "API Gateway (BFF) — единая точка входа, оркестрация (ТЗ §2.2)"
+description = "API Gateway (BFF) — единая точка входа, оркестрация"
 requires-python = ">=3.12"
 dependencies = [
     "csosint-common",

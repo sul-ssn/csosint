@@ -1,7 +1,7 @@
 [project]
 name = "collector-service"
 version = "0.1.0"
-description = "collector-service — пассивный сбор активов (InternetDB, CT, DNS/RDAP) (ТЗ §2.2, §4)"
+description = "collector-service — пассивный сбор активов (InternetDB, CT, DNS/RDAP)"
 requires-python = ">=3.12"
 dependencies = [
     "csosint-common",

@@ -1,4 +1,4 @@
-# Локальный стек CSOSINT (ТЗ Этап 0). Запуск: cp .env.example .env && docker compose up
+# Локальный стек CSOSINT. Запуск: cp .env.example .env && docker compose up
 name: csosint
 
 services:

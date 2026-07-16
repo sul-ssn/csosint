@@ -30,3 +30,6 @@ frontend/out/
 frontend/next-env.d.ts
 frontend/.turbo/
 *.tsbuildinfo
+
+# Removed product brief
+/specification

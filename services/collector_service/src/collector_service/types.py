@@ -1,8 +1,8 @@
-"""Нормализованный результат сбора (ТЗ §4, §5).
+"""Нормализованный результат сбора.
 
 Источники разные, а таблицы БД — общие. Каждый коннектор наполняет `CollectResult`
 нормализованными наблюдениями с пометкой `source`. Провенанс: фиксируем ВСЕ
-наблюдения (кто что сказал), не перетираем при конфликте (ТЗ §4.5).
+наблюдения (кто что сказал), не перетираем при конфликте.
 """
 
 from __future__ import annotations
@@ -41,6 +41,21 @@ class IpInfo:
     asn: str | None = None
     org_name: str | None = None
     country: str | None = None
+    network_cidr: str | None = None
+    network_start: str | None = None
+    network_end: str | None = None
+
+
+@dataclass(slots=True)
+class CertificateObservation:
+    """Сертификат из CT-лога и DNS-имена, которые он инфраструктурно связывает."""
+
+    fingerprint: str
+    names: list[str]
+    source: str
+    issuer: str | None = None
+    not_before: str | None = None
+    not_after: str | None = None
 
 
 @dataclass(slots=True)
@@ -65,6 +80,7 @@ class CollectResult:
     vulns: list[HostVuln] = field(default_factory=list)
     ip_infos: list[IpInfo] = field(default_factory=list)
     dns_records: list[DnsRecords] = field(default_factory=list)
+    certificates: list[CertificateObservation] = field(default_factory=list)
     # источник -> причина деградации (skipped: нет ключа / failed: источник упал)
     degraded: dict[str, str] = field(default_factory=dict)
 
@@ -85,6 +101,9 @@ class CollectResult:
 
     def add_dns(self, rec: DnsRecords) -> None:
         self.dns_records.append(rec)
+
+    def add_certificate(self, cert: CertificateObservation) -> None:
+        self.certificates.append(cert)
 
     def mark_degraded(self, source: str, reason: str) -> None:
         self.degraded[source] = reason

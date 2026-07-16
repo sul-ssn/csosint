@@ -1,4 +1,4 @@
-"""WS-подписка на прогресс через Redis pub/sub (ТЗ §7). Redis — fakeredis."""
+"""WS-подписка на прогресс через Redis pub/sub. Redis — fakeredis."""
 
 from __future__ import annotations
 

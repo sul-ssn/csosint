@@ -1,4 +1,4 @@
-"""API Gateway — единая точка входа (ТЗ §7).
+"""API Gateway — единая точка входа.
 
 Этап 2: оркестрация сбора — POST /scan создаёт scan_job и ставит его в очередь
 collector-service; GET /scan/{job_id} отдаёт статус (+ degraded_sources).
@@ -54,7 +54,7 @@ app.add_middleware(
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-# Rate-limit на все эндпоинты API (ТЗ §7).
+# Rate-limit на все эндпоинты API.
 api = APIRouter(prefix="/api/v1", dependencies=[Depends(rate_limit)])
 
 
@@ -123,7 +123,7 @@ async def get_report(job_id: int, session: SessionDep) -> dict:
 
 @api.post("/analyze/{job_id}")
 async def analyze(job_id: int, session: SessionDep) -> dict:
-    """AI-сценарии атак поверх отчёта (Этап 6). Оборонительно, «potential» (ТЗ §6).
+    """AI-сценарии атак поверх отчёта (Этап 6). Оборонительно, «potential».
 
     Опционально: без ANTHROPIC_API_KEY — 501 (self-host приносит свой ключ).
     """
@@ -165,7 +165,9 @@ async def ws_scan(websocket: WebSocket, job_id: int) -> None:
     try:
         async for data in scan_stream(job_id, redis):
             await websocket.send_text(data)
-    except WebSocketDisconnect:
+    # Safari/StrictMode иногда закрывает transport между проверкой состояния и
+    # send_text; uvloop в этом случае поднимает RuntimeError вместо disconnect.
+    except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
         await redis.aclose()

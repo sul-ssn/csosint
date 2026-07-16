@@ -21,8 +21,11 @@ const TYPE: Record<string, { color: string; label: string }> = {
   cve: { color: "#dc6868", label: "Уязвимость" },
   country: { color: "#8491a8", label: "Страна" },
   org: { color: "#a889cf", label: "Организация" },
+  certificate: { color: "#d795c3", label: "Сертификат" },
+  asn: { color: "#6fa9d9", label: "ASN" },
+  netblock: { color: "#7289a8", label: "Netblock" },
 };
-const ORDER = ["domain", "ip", "service", "cve", "org", "country"];
+const ORDER = ["domain", "ip", "service", "cve", "certificate", "asn", "netblock", "org", "country"];
 const SEV: Record<string, string> = {
   CRITICAL: "#d03b3b",
   HIGH: "#ec835a",
@@ -50,6 +53,8 @@ export default function GraphView({ graph }: { graph: Graph }) {
   const cyRef = useRef<cytoscape.Core | null>(null);
   const queryRef = useRef("");
   const [query, setQuery] = useState("");
+  const [contextDepth, setContextDepth] = useState(2);
+  const [matchCount, setMatchCount] = useState(0);
   const [selected, setSelected] = useState<GraphNode["data"] | null>(null);
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
 
@@ -97,6 +102,9 @@ export default function GraphView({ graph }: { graph: Graph }) {
         { selector: 'node[type="service"]', style: { "background-color": TYPE.service.color, width: 13, height: 13 } },
         { selector: 'node[type="country"]', style: { "background-color": TYPE.country.color, width: 11, height: 11 } },
         { selector: 'node[type="org"]', style: { "background-color": TYPE.org.color, width: 15, height: 15 } },
+        { selector: 'node[type="certificate"]', style: { "background-color": TYPE.certificate.color, width: 14, height: 14 } },
+        { selector: 'node[type="asn"]', style: { "background-color": TYPE.asn.color, width: 14, height: 14 } },
+        { selector: 'node[type="netblock"]', style: { "background-color": TYPE.netblock.color, width: 12, height: 12 } },
         { selector: 'node[type="cve"]', style: { "background-color": SEV.UNKNOWN, width: 15, height: 15 } },
         { selector: 'node[type="cve"][severity="CRITICAL"]', style: { "background-color": SEV.CRITICAL, width: 21, height: 21, "border-width": 2 } },
         { selector: 'node[type="cve"][severity="HIGH"]', style: { "background-color": SEV.HIGH, width: 18, height: 18 } },
@@ -117,7 +125,12 @@ export default function GraphView({ graph }: { graph: Graph }) {
         { selector: 'edge[type="vulnerable"]', style: { "line-color": "#9d626a", width: 1.25, opacity: .58 } },
         { selector: 'edge[type="geo"]', style: { "line-color": "#586174", "line-style": "dashed" } },
         { selector: 'edge[type="hosted"]', style: { "line-color": "#715f85", "line-style": "dashed" } },
+        { selector: 'edge[type="covered_by"]', style: { "line-color": "#8b6388" } },
+        { selector: 'edge[type="announced_by"]', style: { "line-color": "#536f91", "line-style": "dashed" } },
+        { selector: 'edge[type="member_of"]', style: { "line-color": "#4b5d74", "line-style": "dashed" } },
         { selector: ".dim", style: { opacity: 0.08 } },
+        { selector: "edge.context", style: { opacity: 0.72, width: 1.4 } },
+        { selector: "node.context", style: { opacity: 1 } },
         { selector: "node.hot", style: { "border-color": "#eaf1fb", "border-width": 3 } },
         { selector: "node.match", style: { "border-color": "#eaf1fb", "border-width": 3 } },
         { selector: "node.selected", style: { "border-color": "#ffffff", "border-width": 3, "overlay-color": "#8db3ff", "overlay-opacity": 0.16, "overlay-padding": 9 } },
@@ -166,19 +179,37 @@ export default function GraphView({ graph }: { graph: Graph }) {
     cy.fit(cy.elements(":visible"), 50);
   }, [hiddenTypes]);
 
-  // Поиск: подсветить совпадения по подписи, приглушить остальное.
+  // Контекстный поиск: совпадение по всем данным узла + окружение на N шагов.
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
     cy.batch(() => {
-      cy.elements().removeClass("dim match hot");
+      cy.elements().removeClass("dim match hot context");
       const q = query.trim().toLowerCase();
-      if (!q) return;
-      const hit = cy.nodes().filter((n) => String(n.data("label")).toLowerCase().includes(q));
+      if (!q) {
+        setMatchCount(0);
+        return;
+      }
+      const tokens = q.split(/\s+/).filter(Boolean);
+      const hit = cy.nodes().filter((node) => {
+        const searchable = Object.entries(node.data())
+          .filter(([key, value]) => key !== "id" && value != null)
+          .map(([key, value]) => `${key} ${String(value)}`)
+          .join(" ")
+          .toLowerCase();
+        return tokens.every((token) => searchable.includes(token));
+      });
+      setMatchCount(hit.length);
       cy.elements().addClass("dim");
+      let context = hit.union(hit.connectedEdges());
+      for (let step = 0; step < contextDepth; step += 1) {
+        context = context.union(context.neighborhood());
+      }
+      context.removeClass("dim").addClass("context");
       hit.removeClass("dim").addClass("match");
+      if (hit.length > 0) cy.fit(context, 90);
     });
-  }, [query]);
+  }, [contextDepth, query]);
 
   const total = graph.nodes.length;
 
@@ -208,15 +239,29 @@ export default function GraphView({ graph }: { graph: Graph }) {
       <div className="graph-shell">
         <div ref={ref} className="graph-cy" />
         <aside className="graph-side">
-          <input
-            className="side-search"
-            placeholder="Поиск узла…"
-            value={query}
-            onChange={(e) => {
-              queryRef.current = e.target.value;
-              setQuery(e.target.value);
-            }}
-          />
+          <div className="graph-search-block">
+            <input
+              className="side-search"
+              placeholder="IP, домен, страна, CVE…"
+              value={query}
+              onChange={(e) => {
+                queryRef.current = e.target.value;
+                setQuery(e.target.value);
+              }}
+            />
+            {query && <div className="search-meta">
+              <span>{matchCount ? `Найдено: ${matchCount}` : "Совпадений нет"}</span>
+              <button type="button" onClick={() => { queryRef.current = ""; setQuery(""); }}>Очистить</button>
+            </div>}
+            <label className="depth-control">
+              <span>Показывать связи</span>
+              <select value={contextDepth} onChange={(e) => setContextDepth(Number(e.target.value))}>
+                <option value={1}>на 1 шаг</option>
+                <option value={2}>на 2 шага</option>
+                <option value={3}>на 3 шага</option>
+              </select>
+            </label>
+          </div>
           <div className="side-title">Показывать на карте</div>
           <div className="side-legend">
             {ORDER.filter((t) => counts[t]).map((t) => (

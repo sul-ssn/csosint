@@ -1,4 +1,4 @@
-"""Коннекторы сбора: чистые парсеры + http-ретраи (ТЗ §4, §12). Сеть — respx."""
+"""Коннекторы сбора: чистые парсеры + http-ретраи. Сеть — respx."""
 
 from __future__ import annotations
 
@@ -77,6 +77,23 @@ def test_certspotter_parse() -> None:
     assert crtsh.parse_certspotter("example.com", data) == {"x.example.com", "example.com"}
 
 
+def test_crtsh_certificate_observation() -> None:
+    data = [
+        {
+            "id": 42,
+            "serial_number": "abc123",
+            "name_value": "api.example.com\n*.example.com",
+            "issuer_name": "Let's Encrypt",
+            "not_before": "2026-07-01T00:00:00",
+            "not_after": "2026-09-29T00:00:00",
+        }
+    ]
+    cert = crtsh.parse_crtsh_certificates("example.com", data)[0]
+    assert cert.fingerprint == "crtsh:abc123"
+    assert cert.names == ["api.example.com", "example.com"]
+    assert cert.issuer == "Let's Encrypt"
+
+
 @respx.mock
 async def test_crtsh_falls_back_to_certspotter() -> None:
     respx.get("https://crt.sh/").mock(return_value=httpx.Response(502))
@@ -113,6 +130,22 @@ def test_rdap_parse_org_from_entities() -> None:
 def test_rdap_parse_falls_back_to_name() -> None:
     info = rdap.parse_ip("1.1.1.1", {"name": "CLOUDFLARENET", "country": "US"})
     assert info.org_name == "CLOUDFLARENET"
+
+
+def test_rdap_parse_network_and_origin_asn() -> None:
+    info = rdap.parse_ip(
+        "203.0.113.5",
+        {
+            "name": "EXAMPLE-NET",
+            "startAddress": "203.0.113.0",
+            "endAddress": "203.0.113.255",
+            "arin_originas0_originautnums": [64500],
+            "cidr0_cidrs": [{"v4prefix": "203.0.113.0", "length": 24}],
+        },
+    )
+    assert info.asn == "AS64500"
+    assert info.network_cidr == "203.0.113.0/24"
+    assert info.network_start == "203.0.113.0"
 
 
 # --- Опциональные источники ------------------------------------------------ #

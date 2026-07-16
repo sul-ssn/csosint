@@ -1,4 +1,4 @@
-"""cve-service HTTP-фасад (ТЗ §4.2, §6).
+"""cve-service HTTP-фасад.
 
 Этап 1: health + управление синком NVD и матчингом. Внутренний сервис —
 публичный вход остаётся у gateway; сюда gateway ходит по очереди/HTTP.
@@ -54,6 +54,10 @@ class CveDetail(BaseModel):
     cvss_score: float | None = None
     cvss_vector: str | None = None
     severity: str | None = None
+    epss_score: float | None = None
+    epss_percentile: float | None = None
+    kev: bool = False
+    kev_required_action: str | None = None
 
 
 class ServiceCveOut(BaseModel):
@@ -78,6 +82,15 @@ async def trigger_sync() -> TaskQueued:
 
     result = nvd_sync.delay()
     return TaskQueued(task_id=result.id, task="cve_service.nvd_sync")
+
+
+@app.post("/intel/sync", response_model=TaskQueued, status_code=status.HTTP_202_ACCEPTED)
+async def trigger_intel_sync() -> TaskQueued:
+    """Поставить ежедневное обогащение FIRST EPSS + CISA KEV в очередь."""
+    from .celery_app import threat_intel_sync
+
+    result = threat_intel_sync.delay()
+    return TaskQueued(task_id=result.id, task="cve_service.threat_intel_sync")
 
 
 @app.get("/cve/{cve_id}", response_model=CveDetail)

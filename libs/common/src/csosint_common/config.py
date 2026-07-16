@@ -1,7 +1,7 @@
 """Единая конфигурация сервисов (pydantic-settings).
 
 Читается из окружения / .env. Опциональные ключи источников по умолчанию пусты —
-их отсутствие означает graceful degradation (ТЗ §4.5), а не ошибку.
+их отсутствие означает graceful degradation, а не ошибку.
 """
 
 from __future__ import annotations
@@ -23,20 +23,20 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0")
     # CORS для фронта (self-host): `*` в dev или CSV-список origin'ов.
     cors_origins: str = Field(default="*")
-    # Rate-limit на эндпоинты gateway (запросов на клиента в минуту, ТЗ §7).
+    # Rate-limit на эндпоинты gateway (запросов на клиента в минуту).
     rate_limit_per_minute: int = Field(default=60)
 
-    # --- Core-источники (ТЗ §4) ---
+    # --- Core-источники ---
     nvd_api_key: str | None = None
 
-    # --- Optional enrichment (ТЗ §4.5) — пусто => источник пропускается ---
+    # --- Optional enrichment — пусто => источник пропускается ---
     shodan_api_key: str | None = None
     censys_api_id: str | None = None
     censys_api_secret: str | None = None
     securitytrails_api_key: str | None = None
     virustotal_api_key: str | None = None
 
-    # --- AI-анализ сценариев атак (Этап 6, ТЗ §2 CVEG). Опционально: нет ключа → 501 ---
+    # --- AI-анализ сценариев атак. Опционально: нет ключа → 501 ---
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-opus-4-8"
 

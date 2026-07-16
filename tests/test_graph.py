@@ -1,4 +1,4 @@
-"""Сборка графа связей в формат Cytoscape (ТЗ §2.3, §5.2)."""
+"""Сборка графа связей в формат Cytoscape."""
 
 from __future__ import annotations
 
@@ -67,3 +67,29 @@ def test_service_label_without_product() -> None:
     )
     nodes, _ = _index(to_cytoscape(g))
     assert nodes["service:100"]["label"] == "service:22"
+
+
+def test_infrastructure_nodes_and_certificate_edges() -> None:
+    g = GraphData(
+        domains=[(1, "example.com")],
+        ips=[
+            (
+                10,
+                "203.0.113.5",
+                "Example Org",
+                "KZ",
+                "AS64500",
+                "203.0.113.0/24",
+                "203.0.113.0",
+                "203.0.113.255",
+            )
+        ],
+        certificates=[(7, "crtsh:abcdef123456789", "Let's Encrypt", None)],
+        edges_domain_certificate=[(1, 7)],
+    )
+    nodes, edges = _index(to_cytoscape(g))
+    assert nodes["asn:AS64500"]["type"] == "asn"
+    assert nodes["netblock:203.0.113.0/24"]["type"] == "netblock"
+    assert nodes["certificate:7"]["issuer"] == "Let's Encrypt"
+    assert edges["ip:10->asn:AS64500"]["type"] == "announced_by"
+    assert edges["domain:1->certificate:7"]["type"] == "covered_by"
